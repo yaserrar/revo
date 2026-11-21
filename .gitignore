@@ -1,0 +1,34 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# env (secrets live only here)
+.env
+.env.*
+!.env.example
+
+# builds
+.next/
+dist/
+out/
+*.tsbuildinfo
+next-env.d.ts
+.turbo/
+
+# generated Prisma client
+packages/db/src/generated/
+
+# tests
+coverage/
+playwright-report/
+test-results/
+apps/web/e2e/.auth/
+
+# eval raw transcripts (large); summaries in eval/results/*.json are kept
+eval/results/raw/
+
+# misc
+.DS_Store
+*.log
+.vscode/
+.idea/

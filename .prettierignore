@@ -1,0 +1,12 @@
+node_modules
+.next
+dist
+coverage
+pnpm-lock.yaml
+**/generated/**
+**/migrations/**
+eval/results
+apps/web/components.json
+playwright-report
+test-results
+eval/demo-repo

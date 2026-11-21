@@ -1,0 +1,16 @@
+packages:
+  - apps/*
+  - packages/*
+  - tools/*
+  - eval
+
+autoInstallPeers: true
+strictPeerDependencies: false
+
+onlyBuiltDependencies:
+  - '@prisma/engines'
+  - prisma
+  - esbuild
+  - sharp
+  - unrs-resolver
+  - msgpackr-extract

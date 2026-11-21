@@ -1,0 +1,42 @@
+{
+  "name": "revo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "turbo run dev --filter=@revo/web --filter=@revo/worker",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "check": "turbo run typecheck lint test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "review:local": "pnpm --filter @revo/review review:local",
+    "eval": "pnpm --filter @revo/eval eval",
+    "db:generate": "pnpm --filter @revo/db db:generate",
+    "db:migrate": "pnpm --filter @revo/db db:migrate",
+    "db:deploy": "pnpm --filter @revo/db db:deploy",
+    "db:seed": "pnpm --filter @revo/db db:seed",
+    "db:reset": "pnpm --filter @revo/db db:reset",
+    "db:test:prepare": "pnpm --filter @revo/db db:test:prepare",
+    "mock:github": "pnpm --filter @revo/mock-github start",
+    "github:app": "pnpm --filter @revo/github app:create",
+    "test:e2e": "pnpm --filter @revo/web build && pnpm --filter @revo/web test:e2e",
+    "test:claude": "REVO_E2E_CLAUDE=1 pnpm --filter @revo/web test:e2e e2e/claude.spec.ts",
+    "setup:local": "node scripts/setup-local-env.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
+    "prettier": "^3.10.1",
+    "turbo": "^2.11.13",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.73.0"
+  }
+}
