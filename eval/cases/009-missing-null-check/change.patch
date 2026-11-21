@@ -1,0 +1,26 @@
+diff --git a/src/app/api/admin/reports/daily/route.ts b/src/app/api/admin/reports/daily/route.ts
+index 1c28100..ecdb41e 100644
+--- a/src/app/api/admin/reports/daily/route.ts
++++ b/src/app/api/admin/reports/daily/route.ts
+@@ -16,8 +16,21 @@ export const GET = handle(async (req) => {
+     _count: { _all: true },
+     _sum: { totalCents: true },
+   });
++  const [top] = await db.orderItem.groupBy({
++    by: ['productId'],
++    where: { order: { createdAt: { gte: day, lt: addDays(day, 1) } } },
++    _sum: { quantity: true },
++    orderBy: { _sum: { quantity: 'desc' } },
++    take: 1,
++  });
++  const bestSeller = await db.product.findUniqueOrThrow({
++    where: { id: top.productId },
++    select: { name: true, slug: true },
++  });
++
+   return json({
+     day: isoDay(day),
+     byStatus: rows.map((r) => ({ status: r.status, orders: r._count._all, revenueCents: r._sum.totalCents ?? 0 })),
++    bestSeller: { ...bestSeller, unitsSold: top._sum.quantity ?? 0 },
+   });
+ });

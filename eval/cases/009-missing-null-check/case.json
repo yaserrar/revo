@@ -1,0 +1,14 @@
+{
+  "id": "009-missing-null-check",
+  "title": "Daily report: best-selling product",
+  "body": "The daily sales report now also shows the best-selling product of the day.",
+  "note": "On a day without orders groupBy returns [], `top` is undefined and `top.productId` throws: the whole report answers 500 (TypeScript allows it without noUncheckedIndexedAccess).",
+  "expected": [
+    {
+      "file": "src/app/api/admin/reports/daily/route.ts",
+      "lineStart": 19,
+      "lineEnd": 27,
+      "category": "bug"
+    }
+  ]
+}

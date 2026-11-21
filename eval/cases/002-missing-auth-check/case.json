@@ -1,0 +1,14 @@
+{
+  "id": "002-missing-auth-check",
+  "title": "Let customers cancel pending orders",
+  "body": "Adds `PATCH /api/orders/:id` so a customer can cancel an order that is not paid yet. Stock is released in the same transaction.",
+  "note": "Any signed-in user can cancel any other customer's order: the order is never checked against the user (GET in the same file does it).",
+  "expected": [
+    {
+      "file": "src/app/api/orders/[id]/route.ts",
+      "lineStart": 21,
+      "lineEnd": 23,
+      "category": "security"
+    }
+  ]
+}

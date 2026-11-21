@@ -1,0 +1,14 @@
+{
+  "id": "005-timezone",
+  "title": "Admin: weekly revenue endpoint",
+  "body": "Adds `GET /api/admin/reports/weekly` for the revenue chart on the admin dashboard: the last 7 full days.",
+  "note": "Local midnight instead of UTC: on a server not in UTC the window and the UTC day keys disagree (dates.ts says reports bucket by UTC day; startOfUtcDay exists).",
+  "expected": [
+    {
+      "file": "src/app/api/admin/reports/weekly/route.ts",
+      "lineStart": 10,
+      "lineEnd": 11,
+      "category": "data"
+    }
+  ]
+}

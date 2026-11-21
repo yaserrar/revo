@@ -1,0 +1,7 @@
+{
+  "id": "105-clean-create-product",
+  "title": "Admin: create products",
+  "body": "Adds `POST /api/products` (admins only) with a validated body. A duplicate slug answers 409 instead of 500. Tests cover the schema.",
+  "note": "Clean: admin check, Zod validation, unique-constraint error mapped to 409, tested.",
+  "expected": []
+}

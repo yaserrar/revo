@@ -1,0 +1,47 @@
+diff --git a/src/app/api/orders/[id]/invoice/route.ts b/src/app/api/orders/[id]/invoice/route.ts
+new file mode 100644
+index 0000000..735668d
+--- /dev/null
++++ b/src/app/api/orders/[id]/invoice/route.ts
+@@ -0,0 +1,41 @@
++import { requireUser } from '@/lib/auth';
++import { db } from '@/lib/db';
++import { handle, HttpError, json, notFound } from '@/lib/http';
++import { formatCents } from '@/lib/money';
++
++type Ctx = { params: Promise<{ id: string }> };
++
++/** Invoice for a paid order. Same access rule as the order: its customer or an admin. */
++export const GET = handle<Ctx>(async (req, { params }) => {
++  const user = await requireUser(req);
++  const { id } = await params;
++  const order = await db.order.findUnique({
++    where: { id },
++    include: {
++      user: { select: { name: true, email: true } },
++      items: { include: { product: { select: { name: true } } } },
++    },
++  });
++  if (!order || (order.userId !== user.id && user.role !== 'ADMIN')) throw notFound('Order');
++  if (order.status === 'PENDING' || order.status === 'CANCELLED') {
++    throw new HttpError(409, 'Invoices exist only for paid orders');
++  }
++
++  return json({
++    invoice: {
++      number: `HG-${order.id}`,
++      issuedAt: order.paidAt ?? order.createdAt,
++      customer: order.user,
++      lines: order.items.map((item) => ({
++        product: item.product.name,
++        quantity: item.quantity,
++        unitPrice: formatCents(item.unitPriceCents),
++        amount: formatCents(item.unitPriceCents * item.quantity),
++      })),
++      subtotal: formatCents(order.subtotalCents),
++      discount: formatCents(order.discountCents),
++      tax: formatCents(order.taxCents),
++      total: formatCents(order.totalCents),
++    },
++  });
++});

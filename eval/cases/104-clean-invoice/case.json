@@ -1,0 +1,7 @@
+{
+  "id": "104-clean-invoice",
+  "title": "Invoice endpoint for paid orders",
+  "body": "Adds `GET /api/orders/:id/invoice`, used by the \"Download invoice\" button. Same ownership rule as the order page; items come in the same query.",
+  "note": "Clean: ownership check identical to GET order, single query with include, unit prices from the order items.",
+  "expected": []
+}

@@ -1,0 +1,7 @@
+{
+  "id": "102-clean-money-format",
+  "title": "Itemised totals in the confirmation email",
+  "body": "The confirmation email now lists subtotal, discount, tax and total. `formatCents` uses Intl so large amounts get thousands separators. Adds tests for the money helpers.",
+  "note": "Clean: Intl currency formatting of integer cents, tested; email text only.",
+  "expected": []
+}

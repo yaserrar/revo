@@ -1,0 +1,24 @@
+diff --git a/src/app/api/coupons/[code]/route.ts b/src/app/api/coupons/[code]/route.ts
+index 0637c31..b0237c2 100644
+--- a/src/app/api/coupons/[code]/route.ts
++++ b/src/app/api/coupons/[code]/route.ts
+@@ -1,11 +1,18 @@
+ import { db } from '@/lib/db';
+ import { handle, json, notFound } from '@/lib/http';
++import { clientIp, rateLimit } from '@/lib/rate-limit';
+ import { CouponCodeSchema } from '@/lib/validation';
+ 
+ type Ctx = { params: Promise<{ code: string }> };
+ 
++/** Coupon checks per client address per minute: enough for a person, too few to guess codes. */
++const CHECKS_PER_MINUTE = 10;
++
+ /** Checks a coupon code at checkout and returns its discount. */
+-export const GET = handle<Ctx>(async (_req, { params }) => {
++export const GET = handle<Ctx>(async (req, { params }) => {
++  if (!rateLimit(`coupon:${clientIp(req)}`, CHECKS_PER_MINUTE, 60_000)) {
++    return json({ error: 'Too many attempts. Try again in a minute.' }, { status: 429, headers: { 'retry-after': '60' } });
++  }
+   const code = CouponCodeSchema.parse((await params).code);
+   const coupon = await db.coupon.findUnique({ where: { code } });
+   if (!coupon || (coupon.expiresAt && coupon.expiresAt <= new Date())) throw notFound('Coupon');

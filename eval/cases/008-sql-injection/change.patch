@@ -1,0 +1,26 @@
+diff --git a/src/app/api/products/search/route.ts b/src/app/api/products/search/route.ts
+new file mode 100644
+index 0000000..cbadd77
+--- /dev/null
++++ b/src/app/api/products/search/route.ts
+@@ -0,0 +1,20 @@
++import { db } from '@/lib/db';
++import { badRequest, handle, json } from '@/lib/http';
++import { parsePagination } from '@/lib/pagination';
++
++type SearchHit = { id: string; slug: string; name: string; priceCents: number };
++
++/** Catalogue search on product name and description, case-insensitive. */
++export const GET = handle(async (req) => {
++  const url = new URL(req.url);
++  const q = (url.searchParams.get('q') ?? '').trim();
++  if (q.length < 2) throw badRequest('Type at least 2 characters');
++  const { skip, take } = parsePagination(url);
++
++  const products = await db.$queryRawUnsafe<SearchHit[]>(
++    `SELECT id, slug, name, "priceCents" FROM "Product"
++     WHERE active = true AND (name ILIKE '%${q}%' OR description ILIKE '%${q}%')
++     ORDER BY name LIMIT ${take} OFFSET ${skip}`,
++  );
++  return json({ products });
++});

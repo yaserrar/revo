@@ -1,0 +1,89 @@
+diff --git a/src/app/api/admin/reports/daily/route.ts b/src/app/api/admin/reports/daily/route.ts
+index 1c28100..8ace62e 100644
+--- a/src/app/api/admin/reports/daily/route.ts
++++ b/src/app/api/admin/reports/daily/route.ts
+@@ -1,12 +1,17 @@
+ import { requireAdmin } from '@/lib/auth';
+ import { addDays, isoDay, parseIsoDay, startOfUtcDay } from '@/lib/dates';
++import { toCsv } from '@/lib/csv';
+ import { db } from '@/lib/db';
+ import { badRequest, handle, json } from '@/lib/http';
+ 
+-/** Sales for one UTC day (`?day=YYYY-MM-DD`, default today): order count and revenue by status. */
++/**
++ * Sales for one UTC day (`?day=YYYY-MM-DD`, default today): order count and revenue by status.
++ * `?format=csv` downloads the same rows as a spreadsheet.
++ */
+ export const GET = handle(async (req) => {
+   await requireAdmin(req);
+-  const param = new URL(req.url).searchParams.get('day');
++  const url = new URL(req.url);
++  const param = url.searchParams.get('day');
+   const day = param ? parseIsoDay(param) : startOfUtcDay(new Date());
+   if (!day) throw badRequest('day must be YYYY-MM-DD');
+ 
+@@ -16,8 +21,23 @@ export const GET = handle(async (req) => {
+     _count: { _all: true },
+     _sum: { totalCents: true },
+   });
+-  return json({
+-    day: isoDay(day),
+-    byStatus: rows.map((r) => ({ status: r.status, orders: r._count._all, revenueCents: r._sum.totalCents ?? 0 })),
+-  });
++  const byStatus = rows.map((r) => ({
++    status: r.status,
++    orders: r._count._all,
++    revenueCents: r._sum.totalCents ?? 0,
++  }));
++
++  if (url.searchParams.get('format') === 'csv') {
++    const csv = toCsv(
++      ['day', 'status', 'orders', 'revenue_cents'],
++      byStatus.map((r) => [isoDay(day), r.status, r.orders, r.revenueCents]),
++    );
++    return new Response(csv, {
++      headers: {
++        'content-type': 'text/csv; charset=utf-8',
++        'content-disposition': `attachment; filename="sales-${isoDay(day)}.csv"`,
++      },
++    });
++  }
++  return json({ day: isoDay(day), byStatus });
+ });
+diff --git a/src/lib/csv.ts b/src/lib/csv.ts
+new file mode 100644
+index 0000000..c162bfe
+--- /dev/null
++++ b/src/lib/csv.ts
+@@ -0,0 +1,10 @@
++/** One CSV field (RFC 4180): quoted when it holds a comma, a quote or a line break, with quotes doubled. */
++export function csvField(value: string | number): string {
++  const text = String(value);
++  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
++}
++
++/** A CSV document with a header row and CRLF line endings. */
++export function toCsv(header: readonly string[], rows: readonly (readonly (string | number)[])[]): string {
++  return [header, ...rows].map((row) => row.map(csvField).join(',')).join('\r\n') + '\r\n';
++}
+diff --git a/tests/csv.test.ts b/tests/csv.test.ts
+new file mode 100644
+index 0000000..8825268
+--- /dev/null
++++ b/tests/csv.test.ts
+@@ -0,0 +1,15 @@
++import { describe, expect, it } from 'vitest';
++import { csvField, toCsv } from '../src/lib/csv';
++
++describe('csv', () => {
++  it('quotes only the fields that need it', () => {
++    expect(csvField('PAID')).toBe('PAID');
++    expect(csvField(1250)).toBe('1250');
++    expect(csvField('a,b')).toBe('"a,b"');
++    expect(csvField('say "hi"')).toBe('"say ""hi"""');
++  });
++
++  it('writes a header and rows with CRLF', () => {
++    expect(toCsv(['day', 'orders'], [['2026-11-20', 3]])).toBe('day,orders\r\n2026-11-20,3\r\n');
++  });
++});

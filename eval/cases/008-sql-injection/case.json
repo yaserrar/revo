@@ -1,0 +1,14 @@
+{
+  "id": "008-sql-injection",
+  "title": "Product search",
+  "body": "Adds `GET /api/products/search?q=` with ILIKE on name and description. Prisma `contains` was too slow without the trigram index, so this uses raw SQL.",
+  "note": "The search text is interpolated into raw SQL ($queryRawUnsafe): SQL injection from a public endpoint.",
+  "expected": [
+    {
+      "file": "src/app/api/products/search/route.ts",
+      "lineStart": 14,
+      "lineEnd": 16,
+      "category": "security"
+    }
+  ]
+}

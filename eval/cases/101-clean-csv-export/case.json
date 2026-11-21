@@ -1,0 +1,7 @@
+{
+  "id": "101-clean-csv-export",
+  "title": "Daily report: CSV download",
+  "body": "Finance asked to download the daily report as CSV. Adds a small RFC 4180 writer with tests and `?format=csv` on the admin daily report.",
+  "note": "Clean: admin-only route, enum and number fields, proper quoting, tested.",
+  "expected": []
+}

@@ -1,0 +1,14 @@
+{
+  "id": "010-secret-in-code",
+  "title": "Send emails through Sendwave",
+  "body": "The internal mail relay is being retired. Order emails now go through the Sendwave API.",
+  "note": "A live API key is committed in the source instead of read from env.ts like every other secret.",
+  "expected": [
+    {
+      "file": "src/lib/mailer.ts",
+      "lineStart": 8,
+      "lineEnd": 14,
+      "category": "security"
+    }
+  ]
+}

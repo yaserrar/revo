@@ -1,0 +1,56 @@
+diff --git a/src/lib/mailer.ts b/src/lib/mailer.ts
+index b1e12b4..f73c3ef 100644
+--- a/src/lib/mailer.ts
++++ b/src/lib/mailer.ts
+@@ -18,6 +18,13 @@ export async function sendOrderConfirmation(user: Pick<User, 'email' | 'name'>,
+   await deliver({
+     to: user.email,
+     subject: `Your Harbor Goods order ${order.id}`,
+-    text: `Thanks ${user.name}. We received your order for ${formatCents(order.totalCents)}.`,
++    text: [
++      `Thanks ${user.name}. We received your order.`,
++      '',
++      `Subtotal: ${formatCents(order.subtotalCents)}`,
++      ...(order.discountCents > 0 ? [`Discount: -${formatCents(order.discountCents)}`] : []),
++      `Tax: ${formatCents(order.taxCents)}`,
++      `Total: ${formatCents(order.totalCents)}`,
++    ].join('\n'),
+   });
+ }
+diff --git a/src/lib/money.ts b/src/lib/money.ts
+index 56ada74..48c185f 100644
+--- a/src/lib/money.ts
++++ b/src/lib/money.ts
+@@ -13,6 +13,9 @@ export function percentOf(amountCents: number, percent: number): number {
+   return Math.floor((amountCents * percent) / 100);
+ }
+ 
++const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
++
++/** `$1,234.50`, with thousands separators; negative amounts (refunds) as `-$5.00`. */
+ export function formatCents(cents: number): string {
+-  return `$${(cents / 100).toFixed(2)}`;
++  return usd.format(cents / 100);
+ }
+diff --git a/tests/money.test.ts b/tests/money.test.ts
+new file mode 100644
+index 0000000..e5660b6
+--- /dev/null
++++ b/tests/money.test.ts
+@@ -0,0 +1,16 @@
++import { describe, expect, it } from 'vitest';
++import { formatCents, percentOf, taxOn } from '../src/lib/money';
++
++describe('money', () => {
++  it('formats cents as dollars with separators', () => {
++    expect(formatCents(0)).toBe('$0.00');
++    expect(formatCents(5)).toBe('$0.05');
++    expect(formatCents(123450)).toBe('$1,234.50');
++    expect(formatCents(-500)).toBe('-$5.00');
++  });
++
++  it('rounds tax half up and discounts down', () => {
++    expect(taxOn(1800)).toBe(149);
++    expect(percentOf(999, 10)).toBe(99);
++  });
++});

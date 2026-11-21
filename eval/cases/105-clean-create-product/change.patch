@@ -1,0 +1,86 @@
+diff --git a/src/app/api/products/route.ts b/src/app/api/products/route.ts
+index cdceb84..09ec2bf 100644
+--- a/src/app/api/products/route.ts
++++ b/src/app/api/products/route.ts
+@@ -1,6 +1,9 @@
++import { Prisma } from '@prisma/client';
++import { requireAdmin } from '@/lib/auth';
+ import { db } from '@/lib/db';
+-import { handle, json } from '@/lib/http';
++import { handle, HttpError, json } from '@/lib/http';
+ import { parsePagination } from '@/lib/pagination';
++import { CreateProductSchema } from '@/lib/validation';
+ 
+ /** Public catalogue: active products, newest first. */
+ export const GET = handle(async (req) => {
+@@ -18,3 +21,18 @@ export const GET = handle(async (req) => {
+   ]);
+   return json({ products, page, pageSize, total });
+ });
++
++/** Admin: adds a product to the catalogue. Slugs are unique. */
++export const POST = handle(async (req) => {
++  await requireAdmin(req);
++  const input = CreateProductSchema.parse(await req.json());
++  try {
++    const product = await db.product.create({ data: input });
++    return json({ product }, { status: 201 });
++  } catch (err) {
++    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
++      throw new HttpError(409, `A product with the slug "${input.slug}" already exists`);
++    }
++    throw err;
++  }
++});
+diff --git a/src/lib/validation.ts b/src/lib/validation.ts
+index 1fdf866..a0da59c 100644
+--- a/src/lib/validation.ts
++++ b/src/lib/validation.ts
+@@ -9,4 +9,18 @@ export const CreateOrderSchema = z.object({
+ });
+ export type CreateOrderInput = z.infer<typeof CreateOrderSchema>;
+ 
++export const CreateProductSchema = z.object({
++  slug: z
++    .string()
++    .trim()
++    .toLowerCase()
++    .max(80)
++    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Use lowercase words separated by hyphens'),
++  name: z.string().trim().min(2).max(120),
++  description: z.string().trim().max(2000).default(''),
++  priceCents: z.number().int().min(1).max(1_000_000),
++  stock: z.number().int().min(0).max(100_000).default(0),
++});
++export type CreateProductInput = z.infer<typeof CreateProductSchema>;
++
+ export const CouponCodeSchema = z.string().trim().toUpperCase().min(3).max(32);
+diff --git a/tests/validation.test.ts b/tests/validation.test.ts
+new file mode 100644
+index 0000000..5f2aaf2
+--- /dev/null
++++ b/tests/validation.test.ts
+@@ -0,0 +1,23 @@
++import { describe, expect, it } from 'vitest';
++import { CreateProductSchema } from '../src/lib/validation';
++
++const valid = { slug: 'Cast-Iron-Pan', name: 'Cast iron pan', priceCents: 4900 };
++
++describe('CreateProductSchema', () => {
++  it('normalises the slug and fills defaults', () => {
++    expect(CreateProductSchema.parse(valid)).toEqual({
++      slug: 'cast-iron-pan',
++      name: 'Cast iron pan',
++      description: '',
++      priceCents: 4900,
++      stock: 0,
++    });
++  });
++
++  it('rejects bad slugs and prices', () => {
++    expect(CreateProductSchema.safeParse({ ...valid, slug: 'pan--large' }).success).toBe(false);
++    expect(CreateProductSchema.safeParse({ ...valid, slug: 'pan large' }).success).toBe(false);
++    expect(CreateProductSchema.safeParse({ ...valid, priceCents: 0 }).success).toBe(false);
++    expect(CreateProductSchema.safeParse({ ...valid, priceCents: 12.5 }).success).toBe(false);
++  });
++});

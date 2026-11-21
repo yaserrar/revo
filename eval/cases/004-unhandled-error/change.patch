@@ -1,0 +1,48 @@
+diff --git a/src/app/api/admin/orders/[id]/refund/route.ts b/src/app/api/admin/orders/[id]/refund/route.ts
+new file mode 100644
+index 0000000..967f7b5
+--- /dev/null
++++ b/src/app/api/admin/orders/[id]/refund/route.ts
+@@ -0,0 +1,19 @@
++import { requireAdmin } from '@/lib/auth';
++import { db } from '@/lib/db';
++import { handle, HttpError, json, notFound } from '@/lib/http';
++import { refundPayment } from '@/lib/payments';
++
++type Ctx = { params: Promise<{ id: string }> };
++
++/** Support refunds a paid order in full. */
++export const POST = handle<Ctx>(async (req, { params }) => {
++  await requireAdmin(req);
++  const { id } = await params;
++  const order = await db.order.findUnique({ where: { id } });
++  if (!order) throw notFound('Order');
++  if (order.status !== 'PAID' || !order.paymentId) throw new HttpError(409, 'Only paid orders can be refunded');
++
++  const refund = await refundPayment(order.paymentId, order.totalCents);
++  const updated = await db.order.update({ where: { id }, data: { status: 'REFUNDED' } });
++  return json({ order: updated, refundId: refund.id });
++});
+diff --git a/src/lib/payments.ts b/src/lib/payments.ts
+index d74f138..32ca292 100644
+--- a/src/lib/payments.ts
++++ b/src/lib/payments.ts
+@@ -27,6 +27,18 @@ async function paymentsApi<T>(path: string, body: unknown): Promise<T> {
+   return (await res.json()) as T;
+ }
+ 
++export type Refund = { id: string; status: 'succeeded' | 'pending' | 'failed' };
++
++/** Refunds a payment in full or in part. */
++export async function refundPayment(paymentId: string, amountCents: number): Promise<Refund> {
++  const res = await fetch(`${env.PAYMENTS_API_URL}/v1/refunds`, {
++    method: 'POST',
++    headers: { authorization: `Bearer ${env.PAYMENTS_API_KEY}`, 'content-type': 'application/json' },
++    body: JSON.stringify({ paymentId, amountCents }),
++  });
++  return (await res.json()) as Refund;
++}
++
+ export async function createPaymentIntent(orderId: string, amountCents: number) {
+   return paymentsApi<{ id: string; clientSecret: string }>('/v1/intents', { orderId, amountCents });
+ }

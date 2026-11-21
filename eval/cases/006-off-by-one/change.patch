@@ -1,0 +1,58 @@
+diff --git a/src/app/api/products/route.ts b/src/app/api/products/route.ts
+index cdceb84..0a15b7c 100644
+--- a/src/app/api/products/route.ts
++++ b/src/app/api/products/route.ts
+@@ -1,6 +1,6 @@
+ import { db } from '@/lib/db';
+ import { handle, json } from '@/lib/http';
+-import { parsePagination } from '@/lib/pagination';
++import { pageCount, parsePagination } from '@/lib/pagination';
+ 
+ /** Public catalogue: active products, newest first. */
+ export const GET = handle(async (req) => {
+@@ -16,5 +16,6 @@ export const GET = handle(async (req) => {
+     }),
+     db.product.count({ where }),
+   ]);
+-  return json({ products, page, pageSize, total });
++  const totalPages = pageCount(total, pageSize);
++  return json({ products, page, pageSize, total, totalPages, hasNextPage: page < totalPages });
+ });
+diff --git a/src/lib/pagination.ts b/src/lib/pagination.ts
+index 28a038e..3680e19 100644
+--- a/src/lib/pagination.ts
++++ b/src/lib/pagination.ts
+@@ -8,6 +8,11 @@ function positiveInt(value: string | null, fallback: number): number {
+   return Number.isInteger(n) && n > 0 ? n : fallback;
+ }
+ 
++/** Number of pages needed to show `total` items. */
++export function pageCount(total: number, pageSize: number): number {
++  return Math.floor(total / pageSize);
++}
++
+ /** Reads `?page=` (1-based) and `?pageSize=` from a URL, with safe defaults and limits. */
+ export function parsePagination(url: URL): Pagination {
+   const page = positiveInt(url.searchParams.get('page'), 1);
+diff --git a/tests/pagination.test.ts b/tests/pagination.test.ts
+index 662328a..689c59a 100644
+--- a/tests/pagination.test.ts
++++ b/tests/pagination.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from 'vitest';
+-import { parsePagination } from '../src/lib/pagination';
++import { pageCount, parsePagination } from '../src/lib/pagination';
+ 
+ const at = (query: string) => parsePagination(new URL(`https://shop.test/api/products${query}`));
+ 
+@@ -14,3 +14,10 @@ describe('parsePagination', () => {
+     expect(at('?page=-2').page).toBe(1);
+   });
+ });
++
++describe('pageCount', () => {
++  it('counts full pages', () => {
++    expect(pageCount(40, 20)).toBe(2);
++    expect(pageCount(0, 20)).toBe(0);
++  });
++});

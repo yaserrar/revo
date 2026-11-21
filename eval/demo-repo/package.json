@@ -1,0 +1,23 @@
+{
+  "name": "harbor-goods",
+  "version": "1.4.0",
+  "private": true,
+  "description": "Harbor Goods: online shop for kitchen and pantry goods (eval fixture for Revo).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.0.0",
+    "next": "16.3.8",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "prisma": "^7.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  }
+}

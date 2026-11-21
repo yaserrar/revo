@@ -1,0 +1,14 @@
+{
+  "id": "003-n-plus-one",
+  "title": "Show purchased items in the order history",
+  "body": "The order history page now lists the products of each order.",
+  "note": "One query per order (up to 100 per page) instead of including items in the findMany.",
+  "expected": [
+    {
+      "file": "src/app/api/orders/route.ts",
+      "lineStart": 21,
+      "lineEnd": 24,
+      "category": "performance"
+    }
+  ]
+}

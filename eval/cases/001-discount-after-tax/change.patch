@@ -1,0 +1,41 @@
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 722012f..be906a7 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -52,7 +52,8 @@ model Product {
+ model Coupon {
+   id         String    @id @default(cuid())
+   code       String    @unique
+-  percentOff Int
++  percentOff Int       @default(0)
++  amountOffCents Int?
+   expiresAt  DateTime?
+   orders     Order[]
+ }
+diff --git a/src/lib/pricing.ts b/src/lib/pricing.ts
+index da57a8a..f4c50dc 100644
+--- a/src/lib/pricing.ts
++++ b/src/lib/pricing.ts
+@@ -1,7 +1,7 @@
+ import { percentOf, taxOn } from './money';
+ 
+ export type CartLine = { unitPriceCents: number; quantity: number };
+-export type CouponTerms = { percentOff: number };
++export type CouponTerms = { percentOff: number; amountOffCents?: number | null };
+ 
+ export type Totals = {
+   subtotalCents: number;
+@@ -19,5 +19,12 @@ export function priceCart(lines: readonly CartLine[], coupon?: CouponTerms | nul
+   const discountCents = coupon ? percentOf(subtotalCents, coupon.percentOff) : 0;
+   const taxable = subtotalCents - discountCents;
+   const taxCents = taxOn(taxable);
+-  return { subtotalCents, discountCents, taxCents, totalCents: taxable + taxCents };
++  // Fixed-amount coupons ("$5 off") come off the order total, never below zero.
++  const amountOffCents = Math.min(coupon?.amountOffCents ?? 0, taxable + taxCents);
++  return {
++    subtotalCents,
++    discountCents: discountCents + amountOffCents,
++    taxCents,
++    totalCents: taxable + taxCents - amountOffCents,
++  };
+ }

@@ -1,0 +1,22 @@
+diff --git a/src/app/api/orders/route.ts b/src/app/api/orders/route.ts
+index a965b54..f440553 100644
+--- a/src/app/api/orders/route.ts
++++ b/src/app/api/orders/route.ts
+@@ -16,7 +16,16 @@ export const GET = handle(async (req) => {
+     db.order.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'desc' }, skip, take }),
+     db.order.count({ where: { userId: user.id } }),
+   ]);
+-  return json({ orders, page, total });
++  // Order history shows what was bought in each order.
++  const history = [];
++  for (const order of orders) {
++    const items = await db.orderItem.findMany({
++      where: { orderId: order.id },
++      include: { product: { select: { name: true, slug: true } } },
++    });
++    history.push({ ...order, items });
++  }
++  return json({ orders: history, page, total });
+ });
+ 
+ /** Creates an order from the cart, reserves stock and starts the payment. */

@@ -1,0 +1,20 @@
+{
+  "id": "004-unhandled-error",
+  "title": "Admin: refund a paid order",
+  "body": "Support needs a button to refund an order. Adds `refundPayment` to the payments client and `POST /api/admin/orders/:id/refund`.",
+  "note": "refundPayment never checks res.ok (unlike paymentsApi) and the route ignores refund.status, so a failed refund still marks the order REFUNDED.",
+  "expected": [
+    {
+      "file": "src/lib/payments.ts",
+      "lineStart": 34,
+      "lineEnd": 39,
+      "category": "error-handling"
+    },
+    {
+      "file": "src/app/api/admin/orders/[id]/refund/route.ts",
+      "lineStart": 16,
+      "lineEnd": 17,
+      "category": "error-handling"
+    }
+  ]
+}

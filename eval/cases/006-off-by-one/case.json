@@ -1,0 +1,20 @@
+{
+  "id": "006-off-by-one",
+  "title": "Return the page count with the product list",
+  "body": "The storefront pager needs to know how many pages there are. Adds `pageCount` and `totalPages`/`hasNextPage` to `GET /api/products`.",
+  "note": "Math.floor drops the last partial page: 45 products at 20 per page gives 2 pages, so the last 5 are unreachable (and 5 products give 0 pages).",
+  "expected": [
+    {
+      "file": "src/lib/pagination.ts",
+      "lineStart": 13,
+      "lineEnd": 13,
+      "category": "bug"
+    },
+    {
+      "file": "src/app/api/products/route.ts",
+      "lineStart": 19,
+      "lineEnd": 20,
+      "category": "bug"
+    }
+  ]
+}

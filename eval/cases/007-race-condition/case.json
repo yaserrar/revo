@@ -1,0 +1,14 @@
+{
+  "id": "007-race-condition",
+  "title": "Clearer out-of-stock messages at checkout",
+  "body": "Customers only saw \"Not enough stock\". Now the message says how many units are left, or that the product is sold out.",
+  "note": "Read-check-write inside a READ COMMITTED transaction: two concurrent checkouts both read the same stock and both write stock - quantity, overselling (the old code was a single conditional update).",
+  "expected": [
+    {
+      "file": "src/lib/inventory.ts",
+      "lineStart": 9,
+      "lineEnd": 15,
+      "category": "data"
+    }
+  ]
+}

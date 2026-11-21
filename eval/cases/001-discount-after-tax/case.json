@@ -1,0 +1,14 @@
+{
+  "id": "001-discount-after-tax",
+  "title": "Support fixed-amount coupons",
+  "body": "Marketing wants \"$5 off\" coupons in addition to percentage ones. Adds `amountOffCents` to coupons and applies it in `priceCart`.",
+  "note": "The fixed amount is taken off after tax, so tax is charged on money the customer does not pay (the file says tax is computed after every discount).",
+  "expected": [
+    {
+      "file": "src/lib/pricing.ts",
+      "lineStart": 23,
+      "lineEnd": 28,
+      "category": "bug"
+    }
+  ]
+}

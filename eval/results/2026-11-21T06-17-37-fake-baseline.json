@@ -1,0 +1,308 @@
+{
+  "startedAt": "2026-11-21T06:17:37.346Z",
+  "engine": "fake",
+  "effort": "high",
+  "label": "baseline",
+  "runs": [
+    {
+      "model": "claude-sonnet-5-5",
+      "summary": {
+        "cases": 15,
+        "failed": 0,
+        "bugCases": 10,
+        "bugsFound": 3,
+        "recall": 0.3,
+        "findings": 5,
+        "correctFindings": 3,
+        "duplicateFindings": 0,
+        "precision": 0.6,
+        "locationOnlyMatches": 1,
+        "cleanCases": 5,
+        "falseAlarms": 0,
+        "totalCostUsd": 0.138361,
+        "avgCostUsd": 0.009224066666666668,
+        "avgDurationMs": 3.2666666666666666,
+        "meetsTargets": {
+          "recall": false,
+          "falseAlarms": true,
+          "cost": true,
+          "complete": true
+        }
+      },
+      "results": [
+        {
+          "id": "001-discount-after-tax",
+          "expected": [
+            {
+              "file": "src/lib/pricing.ts",
+              "lineStart": 23,
+              "lineEnd": 28,
+              "category": "bug"
+            }
+          ],
+          "findings": [],
+          "rejected": [],
+          "costUsd": 0.00646,
+          "durationMs": 7,
+          "estimatedTokens": 5103
+        },
+        {
+          "id": "002-missing-auth-check",
+          "expected": [
+            {
+              "file": "src/app/api/orders/[id]/route.ts",
+              "lineStart": 21,
+              "lineEnd": 23,
+              "category": "security"
+            }
+          ],
+          "findings": [
+            {
+              "file": "src/app/api/orders/[id]/route.ts",
+              "lineStart": 30,
+              "lineEnd": 30,
+              "category": "performance",
+              "severity": "major",
+              "title": "Query inside a loop (N+1)",
+              "confidence": 0.81,
+              "reason": "The changed line shows the problem directly."
+            }
+          ],
+          "rejected": [],
+          "costUsd": 0.011798,
+          "durationMs": 7,
+          "estimatedTokens": 6086
+        },
+        {
+          "id": "003-n-plus-one",
+          "expected": [
+            {
+              "file": "src/app/api/orders/route.ts",
+              "lineStart": 21,
+              "lineEnd": 24,
+              "category": "performance"
+            }
+          ],
+          "findings": [
+            {
+              "file": "src/app/api/orders/route.ts",
+              "lineStart": 22,
+              "lineEnd": 22,
+              "category": "performance",
+              "severity": "major",
+              "title": "Query inside a loop (N+1)",
+              "confidence": 0.81,
+              "reason": "The changed line shows the problem directly."
+            }
+          ],
+          "rejected": [],
+          "costUsd": 0.012746,
+          "durationMs": 8,
+          "estimatedTokens": 6742
+        },
+        {
+          "id": "004-unhandled-error",
+          "expected": [
+            {
+              "file": "src/lib/payments.ts",
+              "lineStart": 34,
+              "lineEnd": 39,
+              "category": "error-handling"
+            },
+            {
+              "file": "src/app/api/admin/orders/[id]/refund/route.ts",
+              "lineStart": 16,
+              "lineEnd": 17,
+              "category": "error-handling"
+            }
+          ],
+          "findings": [
+            {
+              "file": "src/lib/payments.ts",
+              "lineStart": 33,
+              "lineEnd": 33,
+              "category": "missing-test",
+              "severity": "minor",
+              "title": "No test for refundPayment",
+              "confidence": 0.7,
+              "reason": "The changed line shows the problem directly."
+            }
+          ],
+          "rejected": [],
+          "costUsd": 0.013142,
+          "durationMs": 4,
+          "estimatedTokens": 6668
+        },
+        {
+          "id": "005-timezone",
+          "expected": [
+            {
+              "file": "src/app/api/admin/reports/weekly/route.ts",
+              "lineStart": 10,
+              "lineEnd": 11,
+              "category": "data"
+            }
+          ],
+          "findings": [
+            {
+              "file": "src/app/api/admin/reports/weekly/route.ts",
+              "lineStart": 10,
+              "lineEnd": 10,
+              "category": "data",
+              "severity": "minor",
+              "title": "Date parsed in the server timezone",
+              "confidence": 0.64,
+              "reason": "The changed line shows the problem directly."
+            }
+          ],
+          "rejected": [],
+          "costUsd": 0.011944,
+          "durationMs": 3,
+          "estimatedTokens": 5796
+        },
+        {
+          "id": "006-off-by-one",
+          "expected": [
+            {
+              "file": "src/lib/pagination.ts",
+              "lineStart": 13,
+              "lineEnd": 13,
+              "category": "bug"
+            },
+            {
+              "file": "src/app/api/products/route.ts",
+              "lineStart": 19,
+              "lineEnd": 20,
+              "category": "bug"
+            }
+          ],
+          "findings": [],
+          "rejected": [],
+          "costUsd": 0.00803,
+          "durationMs": 2,
+          "estimatedTokens": 6271
+        },
+        {
+          "id": "007-race-condition",
+          "expected": [
+            {
+              "file": "src/lib/inventory.ts",
+              "lineStart": 9,
+              "lineEnd": 15,
+              "category": "data"
+            }
+          ],
+          "findings": [],
+          "rejected": [],
+          "costUsd": 0.00643,
+          "durationMs": 0,
+          "estimatedTokens": 5034
+        },
+        {
+          "id": "008-sql-injection",
+          "expected": [
+            {
+              "file": "src/app/api/products/search/route.ts",
+              "lineStart": 14,
+              "lineEnd": 16,
+              "category": "security"
+            }
+          ],
+          "findings": [],
+          "rejected": [],
+          "costUsd": 0.005643,
+          "durationMs": 2,
+          "estimatedTokens": 4058
+        },
+        {
+          "id": "009-missing-null-check",
+          "expected": [
+            {
+              "file": "src/app/api/admin/reports/daily/route.ts",
+              "lineStart": 19,
+              "lineEnd": 27,
+              "category": "bug"
+            }
+          ],
+          "findings": [],
+          "rejected": [],
+          "costUsd": 0.008068,
+          "durationMs": 2,
+          "estimatedTokens": 6277
+        },
+        {
+          "id": "010-secret-in-code",
+          "expected": [
+            {
+              "file": "src/lib/mailer.ts",
+              "lineStart": 8,
+              "lineEnd": 14,
+              "category": "security"
+            }
+          ],
+          "findings": [
+            {
+              "file": "src/lib/mailer.ts",
+              "lineStart": 8,
+              "lineEnd": 8,
+              "category": "security",
+              "severity": "blocker",
+              "title": "Secret committed in code",
+              "confidence": 0.95,
+              "reason": "The changed line shows the problem directly."
+            }
+          ],
+          "rejected": [],
+          "costUsd": 0.010228,
+          "durationMs": 2,
+          "estimatedTokens": 5029
+        },
+        {
+          "id": "101-clean-csv-export",
+          "expected": [],
+          "findings": [],
+          "rejected": [],
+          "costUsd": 0.010178,
+          "durationMs": 3,
+          "estimatedTokens": 7312
+        },
+        {
+          "id": "102-clean-money-format",
+          "expected": [],
+          "findings": [],
+          "rejected": [],
+          "costUsd": 0.007415,
+          "durationMs": 1,
+          "estimatedTokens": 5576
+        },
+        {
+          "id": "103-clean-rate-limit",
+          "expected": [],
+          "findings": [],
+          "rejected": [],
+          "costUsd": 0.007418,
+          "durationMs": 3,
+          "estimatedTokens": 5764
+        },
+        {
+          "id": "104-clean-invoice",
+          "expected": [],
+          "findings": [],
+          "rejected": [],
+          "costUsd": 0.008488,
+          "durationMs": 3,
+          "estimatedTokens": 5896
+        },
+        {
+          "id": "105-clean-create-product",
+          "expected": [],
+          "findings": [],
+          "rejected": [],
+          "costUsd": 0.010373,
+          "durationMs": 2,
+          "estimatedTokens": 7513
+        }
+      ]
+    }
+  ]
+}
