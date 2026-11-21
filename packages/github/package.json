@@ -1,0 +1,30 @@
+{
+  "name": "@revo/github",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "app:create": "tsx src/cli/create-app.ts"
+  },
+  "dependencies": {
+    "@octokit/app": "^16.1.4",
+    "@octokit/core": "^7.0.8",
+    "@octokit/plugin-paginate-rest": "^15.0.0",
+    "@octokit/request-error": "^7.1.2",
+    "@octokit/webhooks": "^14.2.0",
+    "@revo/shared": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "vitest": "^5.1.1"
+  }
+}
