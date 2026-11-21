@@ -1,0 +1,334 @@
+// Revo data model (spec section 12, plus access, auth token and webhook log).
+// Every row below Installation is deleted with it (spec 14: uninstall deletes everything).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Enums (values equal the constants in @revo/shared) ──────────────────────
+
+enum AccountType {
+  User
+  Organization
+}
+
+enum PrState {
+  open
+  merged
+  closed
+}
+
+enum ReviewStatus {
+  queued
+  running
+  done
+  skipped
+  failed
+}
+
+enum SkipReason {
+  draft
+  bot
+  budget
+  too_large
+  no_reviewable_files
+  disabled
+}
+
+enum ReviewTrigger {
+  auto
+  manual
+}
+
+enum ScoreLabel {
+  good_to_merge
+  needs_a_look
+  changes_needed
+}
+
+enum Severity {
+  blocker
+  major
+  minor
+}
+
+enum FeedbackOutcome {
+  useful
+  wrong
+}
+
+/// A user's role on a GitHub repo (from the `permissions` GitHub returns), lowest first.
+enum RepoPermission {
+  read
+  triage
+  write
+  maintain
+  admin
+}
+
+// ── Users and access ────────────────────────────────────────────────────────
+
+/// A person who signed in with GitHub. Sessions are Auth.js JWTs (no session table).
+model User {
+  id                    String    @id @default(cuid())
+  githubId              BigInt    @unique
+  login                 String
+  name                  String?
+  avatarUrl             String?
+  /// GitHub user-to-server token, AES-256-GCM encrypted (apps/web/src/server/security/crypto.ts).
+  accessTokenEnc        String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenEnc       String?
+  refreshTokenExpiresAt DateTime?
+  /// Last time RepoAccess was refreshed from GitHub (refreshed when older than 1 hour).
+  accessCheckedAt       DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  feedbacks  Feedback[]
+  repoAccess RepoAccess[]
+}
+
+/// Snapshot of the repos a user can see on GitHub, through the installations they can access.
+model RepoAccess {
+  userId     String
+  repoId     String
+  checkedAt  DateTime       @default(now())
+  /// Settings need maintain or admin; "Review again" needs write or more.
+  permission RepoPermission @default(read)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repo Repo @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  @@id([userId, repoId])
+  @@index([repoId])
+}
+
+// ── GitHub App ──────────────────────────────────────────────────────────────
+
+model Installation {
+  id               String      @id @default(cuid())
+  githubId         BigInt      @unique
+  accountLogin     String
+  accountType      AccountType
+  accountAvatarUrl String?
+  suspendedAt      DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  repos Repo[]
+}
+
+model Repo {
+  id             String   @id @default(cuid())
+  githubId       BigInt   @unique
+  /// owner/name
+  fullName       String
+  private        Boolean  @default(true)
+  installationId String
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  installation Installation  @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  settings     RepoSettings?
+  pullRequests PullRequest[]
+  reviews      Review[]
+  access       RepoAccess[]
+  costs        ReviewCost[]
+
+  @@index([installationId])
+  @@index([fullName])
+}
+
+/// Per-repo review settings (spec 11.6). `Repo.enabled` is the on/off switch.
+model RepoSettings {
+  repoId           String   @id
+  model            String   @default("claude-sonnet-5-5")
+  /// Values of CATEGORIES in @revo/shared, validated with Zod.
+  categories       String[] @default(["bug", "security", "performance", "error-handling", "data", "missing-test"])
+  ignoreGlobs      String[] @default([])
+  threshold        Int      @default(70)
+  maxFindings      Int      @default(5)
+  reviewDrafts     Boolean  @default(false)
+  reviewBots       Boolean  @default(false)
+  inlineComments   Boolean  @default(true)
+  instructions     String   @default("")
+  monthlyBudgetUsd Decimal  @default(20) @db.Decimal(10, 2)
+  updatedAt        DateTime @updatedAt
+
+  repo Repo @relation(fields: [repoId], references: [id], onDelete: Cascade)
+}
+
+// ── Pull requests and reviews ───────────────────────────────────────────────
+
+model PullRequest {
+  id               String    @id @default(cuid())
+  repoId           String
+  githubId         BigInt?
+  number           Int
+  title            String
+  body             String    @default("")
+  author           String
+  authorAvatarUrl  String?
+  baseRef          String
+  headRef          String
+  headSha          String
+  draft            Boolean   @default(false)
+  state            PrState   @default(open)
+  url              String
+  summaryCommentId BigInt?
+  /// GitHub's created_at for the PR.
+  openedAt         DateTime  @default(now())
+  mergedAt         DateTime?
+  closedAt         DateTime?
+  lastReviewedAt   DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  repo    Repo     @relation(fields: [repoId], references: [id], onDelete: Cascade)
+  reviews Review[]
+
+  @@unique([repoId, number])
+  @@index([repoId, state])
+  @@index([lastReviewedAt])
+  @@index([author])
+}
+
+/// One review per (PR, head SHA). "Review again" re-runs the same row.
+model Review {
+  id               String        @id @default(cuid())
+  pullRequestId    String
+  /// Denormalised from the PR for per-repo cost and access-scoped queries.
+  repoId           String
+  headSha          String
+  status           ReviewStatus  @default(queued)
+  skipReason       SkipReason?
+  trigger          ReviewTrigger @default(auto)
+  score            Int?
+  label            ScoreLabel?
+  passed           Boolean?
+  model            String
+  inputTokens      Int           @default(0)
+  outputTokens     Int           @default(0)
+  /// Cache-read input tokens.
+  cachedTokens     Int           @default(0)
+  /// Cache-write input tokens (the prompt written to the cache, billed above the input price).
+  cacheWriteTokens Int           @default(0)
+  costUsd          Decimal       @default(0) @db.Decimal(10, 6)
+  durationMs       Int?
+  filesReviewed    Int           @default(0)
+  filesSkipped     Int           @default(0)
+  skippedFiles     String[]      @default([])
+  /// Notes shown in the comment and dashboard, e.g. "Large PR: reviewed 18 of 52 files."
+  notes            String[]      @default([])
+  error            String?
+  checkRunId       BigInt?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  pullRequest PullRequest  @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  repo        Repo         @relation(fields: [repoId], references: [id], onDelete: Cascade)
+  findings    Finding[]
+  costs       ReviewCost[]
+
+  @@unique([pullRequestId, headSha])
+  @@index([createdAt])
+  @@index([repoId, createdAt])
+  @@index([pullRequestId, createdAt])
+  @@index([status])
+}
+
+/// A finding from pass 1, confirmed (verified = true) or rejected by pass 2.
+model Finding {
+  id               String    @id @default(cuid())
+  reviewId         String
+  /// Order in the review, 0 = most important.
+  index            Int
+  /// Values of CATEGORIES in @revo/shared, validated with Zod.
+  category         String
+  severity         Severity
+  /// Severity from pass 1 when pass 2 lowered it.
+  originalSeverity Severity?
+  file             String
+  lineStart        Int
+  lineEnd          Int
+  title            String
+  explanation      String
+  suggestion       String
+  /// The code lines for display (at most 30, never full files).
+  snippet          String
+  /// Line number of the first line of `snippet`.
+  snippetStartLine Int       @default(1)
+  confidence       Float
+  verified         Boolean
+  rejectReason     String?
+  posted           Boolean   @default(false)
+  githubCommentId  BigInt?
+  createdAt        DateTime  @default(now())
+
+  review    Review     @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  feedbacks Feedback[]
+
+  @@index([reviewId, verified])
+  @@index([file])
+}
+
+model Feedback {
+  id        String          @id @default(cuid())
+  findingId String
+  userId    String
+  outcome   FeedbackOutcome
+  note      String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  finding Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([findingId, userId])
+  @@index([createdAt])
+}
+
+/// Money billed by one review run (or failed attempt), dated when it was spent.
+/// Monthly budgets and cost charts sum these by `spentAt`, so a re-run of an
+/// older commit counts in the month it ran. Review.costUsd stays the per-review total.
+model ReviewCost {
+  id       String   @id @default(cuid())
+  repoId   String
+  reviewId String?
+  costUsd  Decimal  @db.Decimal(10, 6)
+  spentAt  DateTime @default(now())
+
+  repo   Repo    @relation(fields: [repoId], references: [id], onDelete: Cascade)
+  review Review? @relation(fields: [reviewId], references: [id], onDelete: SetNull)
+
+  @@index([repoId, spentAt])
+  @@index([spentAt])
+  @@index([reviewId])
+}
+
+// ── Operations ──────────────────────────────────────────────────────────────
+
+/// Every webhook delivery received, for idempotency and debugging. Holds no code.
+model WebhookDelivery {
+  id                   String    @id @default(cuid())
+  deliveryId           String    @unique
+  event                String
+  action               String?
+  installationGithubId BigInt?
+  repoGithubId         BigInt?
+  receivedAt           DateTime  @default(now())
+  processedAt          DateTime?
+  error                String?
+
+  @@index([receivedAt])
+}
