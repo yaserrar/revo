@@ -1,0 +1,81 @@
+// Public interface of @revo/review. Additive changes only (see AGENTS.md).
+// Node-only helpers (local file reader) live in '@revo/review/node'.
+export { contextBudgetTokens, reviewChanges } from './review';
+export { computeScore, countBySeverity, pointsLost, type ScoreResult } from './score';
+export {
+  FALLBACK_MODEL_PRICES,
+  MODEL_PRICES,
+  ZERO_USAGE,
+  addUsage,
+  callCostUsd,
+  isPricedModel,
+  priceOf,
+  roundUsd,
+  usageCostUsd,
+  type CallUsage,
+  type ModelPrice,
+} from './pricing';
+export { fakeEngine } from './engines/fake';
+export {
+  createClaudeEngine,
+  responseUsage,
+  type ClaudeCallEvent,
+  type ClaudeEffort,
+  type ClaudeEngineOptions,
+} from './engines/claude';
+export {
+  REVIEW_ENGINE_ERROR_CODES,
+  REVIEW_ENGINE_ERROR_MESSAGES,
+  ReviewEngineError,
+  isReviewEngineError,
+  withEarlierUsage,
+  type ReviewEngineErrorCode,
+} from './errors';
+export {
+  compareFilePriority,
+  createIgnoreMatcher,
+  fileChangedLines,
+  filterFiles,
+  largePrNote,
+  looksBinary,
+  looksGenerated,
+  looksMinified,
+  riskTier,
+  selectFiles,
+} from './files';
+export { buildReviewContext, type ContextFileMode, type ReviewContext } from './context';
+export {
+  candidateFiles,
+  collectRelatedFiles,
+  loadTsPaths,
+  matchTsPaths,
+  parseImportSpecifiers,
+  parseJsonc,
+  usesPrisma,
+  type CollectRelatedOptions,
+  type FileReader,
+  type TsPaths,
+} from './related';
+export { applyPatch, isPatchApplied, renderNumberedLines, renderNumberedPatch } from './patch';
+export { CHARS_PER_TOKEN, estimateTokens } from './tokens';
+export { SYSTEM_PROMPT } from './prompts';
+export { applyVerifications, dedupeFindings, selectConfirmed } from './postprocess';
+export { buildSnippet, type Snippet } from './snippet';
+export { parseGitDiff } from './git-diff';
+export type {
+  ChangedFile,
+  ChangedFileStatus,
+  EngineContext,
+  FindResult,
+  PrInfo,
+  RelatedFile,
+  ReviewEngine,
+  ReviewInput,
+  ReviewOutcome,
+  ReviewSettingsInput,
+  ReviewUsage,
+  ReviewedFinding,
+  SkippedFile,
+  SkippedFileReason,
+  VerifyResult,
+} from './types';
