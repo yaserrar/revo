@@ -1,0 +1,350 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Revo design tokens: "paper and ink".
+ * Warm neutrals, one ultramarine accent, colour only for meaning
+ * (score tones, severities, diff). Components use these through Tailwind
+ * utilities (bg-background, text-good-ink, border-border, …): no hex in components.
+ */
+
+@theme inline {
+  /* fonts (set by next/font in app/layout.tsx) */
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, 'SFMono-Regular', monospace;
+  --font-display: var(--font-instrument-serif), 'Iowan Old Style', Georgia, serif;
+
+  /* shadcn base */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Revo surfaces */
+  --color-paper-sunken: var(--paper-sunken);
+  --color-hairline: var(--hairline);
+  --color-ink-soft: var(--ink-soft);
+  --color-scrim: var(--scrim);
+  --color-glass: var(--glass);
+
+  /* the one accent: ultramarine */
+  --color-accent-brand: var(--accent-brand);
+  --color-accent-brand-foreground: var(--accent-brand-foreground);
+  --color-accent-brand-ink: var(--accent-brand-ink);
+  --color-accent-brand-soft: var(--accent-brand-soft);
+
+  /* score / check tones */
+  --color-good: var(--good);
+  --color-good-ink: var(--good-ink);
+  --color-good-soft: var(--good-soft);
+  --color-warn: var(--warn);
+  --color-warn-ink: var(--warn-ink);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-ink: var(--bad-ink);
+  --color-bad-soft: var(--bad-soft);
+
+  /* severities */
+  --color-sev-blocker: var(--sev-blocker);
+  --color-sev-blocker-ink: var(--sev-blocker-ink);
+  --color-sev-blocker-soft: var(--sev-blocker-soft);
+  --color-sev-major: var(--sev-major);
+  --color-sev-major-ink: var(--sev-major-ink);
+  --color-sev-major-soft: var(--sev-major-soft);
+  --color-sev-minor: var(--sev-minor);
+  --color-sev-minor-ink: var(--sev-minor-ink);
+  --color-sev-minor-soft: var(--sev-minor-soft);
+
+  /* code and diff */
+  --color-code: var(--code);
+  --color-code-highlight: var(--code-highlight);
+  --color-code-gutter: var(--code-gutter);
+  --color-diff-add: var(--diff-add);
+  --color-diff-add-ink: var(--diff-add-ink);
+  --color-diff-del: var(--diff-del);
+  --color-diff-del-ink: var(--diff-del-ink);
+
+  /* charts */
+  --color-chart-1: var(--chart-1);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+  --color-series-4: var(--series-4);
+  --color-series-5: var(--series-5);
+  --color-series-6: var(--series-6);
+  --color-chart-neutral: var(--chart-neutral);
+  --color-chart-grid: var(--chart-grid);
+
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.5);
+  --radius-2xl: calc(var(--radius) * 2);
+  --radius-3xl: calc(var(--radius) * 2.75);
+  --radius-4xl: calc(var(--radius) * 3.5);
+
+  --shadow-elevated: var(--elevation-2);
+  --shadow-float: var(--elevation-float);
+  --shadow-card: var(--elevation-1);
+
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root {
+  --radius: 0.75rem;
+
+  /* paper */
+  --background: #faf9f6;
+  --foreground: #1c1a17;
+  --card: #fffefb;
+  --card-foreground: #1c1a17;
+  --popover: #fffefb;
+  --popover-foreground: #1c1a17;
+  --paper-sunken: #f3f1ec;
+  --hairline: #ece8e0;
+  --ink-soft: #3d3934;
+  --glass: rgb(255 254 251 / 0.72);
+  --scrim: rgb(28 26 23 / 0.28);
+
+  --primary: #1c1a17;
+  --primary-foreground: #faf9f6;
+  --secondary: #f0ede6;
+  --secondary-foreground: #1c1a17;
+  --muted: #f2f0ea;
+  --muted-foreground: #6b645a;
+  --accent: #f0ede6;
+  --accent-foreground: #1c1a17;
+  --destructive: #b0301f;
+  --border: #e5e0d6;
+  --input: #d9d3c7;
+  --ring: #2b3bff;
+
+  --accent-brand: #2b3bff;
+  --accent-brand-foreground: #ffffff;
+  --accent-brand-ink: #2b3bff;
+  --accent-brand-soft: #eceeff;
+
+  --good: #1e8a52;
+  --good-ink: #17693f;
+  --good-soft: #e4f2e9;
+  --warn: #c27a0e;
+  --warn-ink: #8a5300;
+  --warn-soft: #fbf0dc;
+  --bad: #d2402f;
+  --bad-ink: #b0301f;
+  --bad-soft: #fbe7e3;
+
+  --sev-blocker: var(--bad);
+  --sev-blocker-ink: var(--bad-ink);
+  --sev-blocker-soft: var(--bad-soft);
+  --sev-major: var(--warn);
+  --sev-major-ink: var(--warn-ink);
+  --sev-major-soft: var(--warn-soft);
+  --sev-minor: #8a8276;
+  --sev-minor-ink: #5f584e;
+  --sev-minor-soft: #efece5;
+
+  --code: #f6f4ef;
+  --code-highlight: #eceeff;
+  --code-gutter: #6b645a;
+  /* Syntax colours: ≥ 5:1 on --code and --code-highlight (WCAG AA). */
+  --code-fg: #1c1a17;
+  --code-comment: #686157;
+  --code-keyword: #8a3a63;
+  --code-string: #2f6b3c;
+  --code-number: #9a4a12;
+  --code-function: #1f5d8a;
+  --code-type: #6b4a9a;
+  --code-property: #4a5560;
+  --code-punctuation: #5f584e;
+  --diff-add: #e6f4ea;
+  --diff-add-ink: #1a6b3c;
+  --diff-del: #fbe9e6;
+  --diff-del-ink: #a63222;
+
+  /* categorical order, validated with the dataviz palette checks (light surface #fffefb) */
+  /* The accent series (one primary line or bar per chart). */
+  --chart-1: #2b3bff;
+  /* Categorical series (repos, finding categories): ink, plum, steel, sand, slate, stone.
+     No accent blue and no good/warn/bad hues, so colour never means two things on a page.
+     Each ≥ 3:1 on --card and --background. */
+  --series-1: #3b3631;
+  --series-2: #8a4f7d;
+  --series-3: #4d7591;
+  --series-4: #a08660;
+  --series-5: #6e6a85;
+  --series-6: #8a8378;
+  --chart-neutral: #8a8276;
+  --chart-grid: #ebe7df;
+
+  --elevation-1: 0 1px 0 rgb(28 26 23 / 0.03), 0 1px 2px rgb(28 26 23 / 0.04);
+  --elevation-2: 0 1px 2px rgb(28 26 23 / 0.05), 0 12px 32px -8px rgb(28 26 23 / 0.16);
+  --elevation-float: 0 1px 1px rgb(28 26 23 / 0.04), 0 8px 24px -6px rgb(28 26 23 / 0.12);
+  --grain-opacity: 0.05;
+}
+
+.dark {
+  /* ink */
+  --background: #121110;
+  --foreground: #edeae3;
+  --card: #1a1917;
+  --card-foreground: #edeae3;
+  --popover: #1e1c1a;
+  --popover-foreground: #edeae3;
+  --paper-sunken: #0d0c0b;
+  --hairline: #24221f;
+  --ink-soft: #cfcac1;
+  --glass: rgb(26 25 23 / 0.7);
+  --scrim: rgb(0 0 0 / 0.55);
+
+  --primary: #edeae3;
+  --primary-foreground: #121110;
+  --secondary: #24221f;
+  --secondary-foreground: #edeae3;
+  --muted: #22201d;
+  --muted-foreground: #a39c90;
+  --accent: #26231f;
+  --accent-foreground: #edeae3;
+  --destructive: #ff8a78;
+  --border: #2e2b27;
+  --input: #3a3631;
+  --ring: #8f99ff;
+
+  --accent-brand: #3e4bff;
+  --accent-brand-foreground: #ffffff;
+  --accent-brand-ink: #9aa2ff;
+  --accent-brand-soft: #1e1f3a;
+
+  --good: #4cc487;
+  --good-ink: #6fd6a0;
+  --good-soft: #142a1e;
+  --warn: #e8a23c;
+  --warn-ink: #f0b75e;
+  --warn-soft: #2e2414;
+  --bad: #ff6b57;
+  --bad-ink: #ff8a78;
+  --bad-soft: #33191a;
+
+  --sev-minor: #8f877b;
+  --sev-minor-ink: #b5aea3;
+  --sev-minor-soft: #26231f;
+
+  --code: #161513;
+  --code-highlight: #1e2040;
+  --code-gutter: #a39c90;
+  --code-fg: #ebe6dc;
+  --code-comment: #a39c90;
+  --code-keyword: #e59ac0;
+  --code-string: #8fd19e;
+  --code-number: #f0a46b;
+  --code-function: #8cc4ef;
+  --code-type: #c4a8f0;
+  --code-property: #c9c2b6;
+  --code-punctuation: #b5aea3;
+  --diff-add: #13271c;
+  --diff-add-ink: #7ad9a2;
+  --diff-del: #2e1716;
+  --diff-del-ink: #ff9585;
+
+  /* categorical order, validated against the dark surface #1a1917 */
+  --chart-1: #5c6bff;
+  --series-1: #e3ddd2;
+  --series-2: #d49bc8;
+  --series-3: #8fb5d1;
+  --series-4: #cdb38a;
+  --series-5: #aaa5c9;
+  --series-6: #8f877b;
+  --chart-neutral: #8f877b;
+  --chart-grid: #26231f;
+
+  --elevation-1: 0 1px 0 rgb(0 0 0 / 0.2);
+  --elevation-2: 0 1px 2px rgb(0 0 0 / 0.4), 0 16px 40px -8px rgb(0 0 0 / 0.6);
+  --elevation-float: 0 1px 1px rgb(0 0 0 / 0.3), 0 10px 30px -8px rgb(0 0 0 / 0.55);
+  --grain-opacity: 0.07;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    scrollbar-gutter: stable;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+    text-rendering: optimizeLegibility;
+    min-height: 100dvh;
+    overflow-x: clip;
+  }
+  /* Paper grain: a fixed SVG noise layer, under all content, never intercepts clicks. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: var(--grain-opacity);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.45 0 0 0 0 0.4 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: multiply;
+  }
+  .dark body::before {
+    mix-blend-mode: screen;
+  }
+  ::selection {
+    background: var(--accent-brand);
+    color: var(--accent-brand-foreground);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Small-caps-like metadata label: mono, uppercase, tracked. */
+  .eyebrow {
+    @apply font-mono text-[0.6875rem] leading-none font-medium tracking-[0.14em] text-muted-foreground uppercase;
+  }
+  /* Big serif numerals and titles. */
+  .display {
+    @apply font-display font-normal tracking-[-0.02em];
+    font-feature-settings: 'lnum', 'tnum';
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Editorial page frame: centered column with 16px gutters on phones. */
+  .page-frame {
+    @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
+  }
+  /* Shiki tokens carry both themes as CSS variables. */
+}
