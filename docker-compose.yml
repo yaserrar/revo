@@ -1,0 +1,169 @@
+# Revo in production (EC2): Traefik (HTTPS, Let's Encrypt) → web; worker; Postgres; Redis.
+# Step by step: DEPLOY.md.
+#   cp .env.example .env   # fill in, set DOMAIN, ACME_EMAIL, POSTGRES_PASSWORD
+#   docker compose up -d --build
+# Only Traefik publishes ports (80, 443). Postgres and Redis stay on the private network.
+name: revo
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: '10m', max-file: '5' }
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://revo:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/revo
+  REDIS_URL: redis://redis:6379/0
+  APP_URL: https://${DOMAIN:?set DOMAIN in .env}
+
+services:
+  traefik:
+    image: traefik:v3.6
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=revo_edge
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:?set ACME_EMAIL in .env}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --ping=true
+      - --log.level=INFO
+      - --accesslog=true
+      # Access logs never record headers (session cookies, webhook signatures).
+      - --accesslog.fields.headers.defaultmode=drop
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks: [edge]
+    healthcheck:
+      test: ['CMD', 'traefik', 'healthcheck', '--ping']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging: *logging
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: revo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: revo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U revo -d revo']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    # BullMQ needs noeviction; AOF keeps queued reviews across restarts.
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    volumes:
+      - redisdata:/data
+    networks: [backend]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  # One-shot: applies Prisma migrations, then exits. web and worker wait for it.
+  migrate:
+    build: { context: ., dockerfile: packages/db/Dockerfile }
+    image: revo-migrate:latest
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgresql://revo:${POSTGRES_PASSWORD}@postgres:5432/revo
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [backend]
+    logging: *logging
+
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+    image: revo-web:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *app-env
+      # Least privilege: only the worker calls Claude.
+      ANTHROPIC_API_KEY: ''
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [edge, backend]
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1']
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=revo_edge
+      - traefik.http.routers.revo.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.revo.entrypoints=websecure
+      - traefik.http.routers.revo.tls=true
+      - traefik.http.routers.revo.tls.certresolver=le
+      - traefik.http.routers.revo.middlewares=revo-headers,revo-body-limit
+      # GitHub webhook payloads are at most 25 MB; dashboard requests are tiny.
+      - traefik.http.middlewares.revo-body-limit.buffering.maxRequestBodyBytes=26214400
+      - traefik.http.middlewares.revo-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.revo-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.services.revo.loadbalancer.server.port=3000
+    logging: *logging
+
+  worker:
+    build: { context: ., dockerfile: apps/worker/Dockerfile }
+    image: revo-worker:latest
+    restart: unless-stopped
+    # SIGTERM lets running reviews finish (a Claude review can take a minute or two).
+    stop_grace_period: 2m
+    env_file: .env
+    environment:
+      <<: *app-env
+      # Real reviews only: the worker refuses the fake engine in production.
+      REVO_ENGINE: claude
+      # Least privilege: the worker never signs users in.
+      AUTH_SECRET: ''
+      TOKEN_ENCRYPTION_KEY: ''
+      GITHUB_CLIENT_SECRET: ''
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [backend]
+    healthcheck:
+      test: ['CMD-SHELL', 'test $$(( $$(date +%s) - $$(stat -c %Y /tmp/revo-worker.heartbeat) )) -lt 60']
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    logging: *logging
+
+networks:
+  # Traefik ↔ web only.
+  edge:
+    name: revo_edge
+  # web, worker, Postgres, Redis. Not `internal`: web and worker call GitHub and the Claude API.
+  backend:
+    name: revo_backend
+
+volumes:
+  letsencrypt:
+  pgdata:
+  redisdata:
