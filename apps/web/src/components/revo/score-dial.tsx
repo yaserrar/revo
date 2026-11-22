@@ -34,8 +34,11 @@ export function ScoreDial({
   className?: string;
 }) {
   const cfg = SIZES[size];
-  const reduced = useReducedMotion();
-  const run = animate && !reduced;
+  // The first render must not depend on reduced motion: the server cannot know it, and a
+  // mismatched start style is never patched (the ticks stayed invisible). Reduced motion
+  // only makes the animation instant.
+  const instant = Boolean(useReducedMotion());
+  const run = animate;
   const tone = score === null ? null : scoreTone(score);
   const toneCls = tone ? TONE_CLASSES[tone] : null;
   const text = label ?? (score === null ? 'No score' : SCORE_LABEL_TEXT[scoreLabel(score)]);
@@ -72,7 +75,7 @@ export function ScoreDial({
                 className={toneCls?.text}
                 initial={run ? { pathLength: 0 } : false}
                 animate={{ pathLength: fraction }}
-                transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+                transition={{ duration: instant ? 0 : 0.9, ease: [0.22, 1, 0.36, 1] }}
               />
             ) : null}
           </>
@@ -82,6 +85,7 @@ export function ScoreDial({
             fraction={fraction}
             toneClass={toneCls?.text}
             animate={run}
+            instant={instant}
             dashed={score === null}
           />
         )}
@@ -120,12 +124,14 @@ function Ticks({
   fraction,
   toneClass,
   animate,
+  instant,
   dashed,
 }: {
   count: number;
   fraction: number;
   toneClass?: string;
   animate: boolean;
+  instant: boolean;
   dashed: boolean;
 }) {
   const filled = Math.round(fraction * count);
@@ -165,7 +171,7 @@ function Ticks({
             strokeLinecap="round"
             initial={animate ? { opacity: 0 } : false}
             animate={{ opacity: 1 }}
-            transition={{ delay: animate ? 0.15 + i * 0.012 : 0, duration: 0.2 }}
+            transition={instant ? { duration: 0 } : { delay: animate ? 0.15 + i * 0.012 : 0, duration: 0.2 }}
           />
         );
       })}
