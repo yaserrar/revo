@@ -146,5 +146,10 @@ including registering the GitHub App from a manifest (`pnpm github:app --url htt
 
 ## For contributors
 
-Commands, ports, contracts, design rules and test recipes: [AGENTS.md](./AGENTS.md). Product spec:
-`../docs/specs/verdict-v1-spec.md` (written under a working name; the product is Revo).
+Commands, ports, contracts, design rules and test recipes: [AGENTS.md](./AGENTS.md). Code comments
+that cite "spec 7.3" and similar refer to sections of the private product spec Revo was built from;
+the code, its tests and AGENTS.md describe the actual behaviour.
+
+## License
+
+[MIT](./LICENSE)

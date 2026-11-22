@@ -5,9 +5,10 @@ Revo is a GitHub App that reviews pull requests with Claude, gives each PR an
 comments for majors and blockers), and shows everything in a dashboard: repos,
 PRs, findings, trends, precision from feedback, and cost.
 
-- **Spec:** `../docs/specs/verdict-v1-spec.md` (written under the working name
-  "Verdict"; the product is **Revo** everywhere: UI, code, packages `@revo/*`,
-  check run `Revo`, marker `<!-- revo:summary -->`). The spec wins over other docs.
+- **Spec:** Revo was built from a private product spec, written under another
+  working name; the product is **Revo** everywhere: UI, code, packages `@revo/*`,
+  check run `Revo`, marker `<!-- revo:summary -->`. Comments citing "spec 7.3"
+  refer to its sections; the code and its tests are the reference here.
 - **Differentiators:** few comments (pass 2 tries to disprove each finding, max 5
   posted), a fixed score formula, measured precision ("Useful"/"Wrong"), visible cost.
 - The spec's Zod field `verdict` (confirmed/rejected) is named **`outcome`** here,
