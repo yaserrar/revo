@@ -94,16 +94,30 @@ export function fileChangedLines(file: ChangedFile): number {
   return file.patch ? changedLineCount(file.patch) : file.additions + file.deletions;
 }
 
-/** Review priority: riskiest tier first, then the most changed file. */
+/** Changed by the commits pushed since Revo's last review of the PR. */
+export function isRecent(file: ChangedFile): boolean {
+  return file.sinceLastReview !== undefined;
+}
+
+/**
+ * Review priority: files changed since the last review first (a new push is
+ * always looked at, even on a PR above the size limits), then the riskiest
+ * tier, then the most changed file.
+ */
 export function compareFilePriority(a: ChangedFile, b: ChangedFile): number {
-  return riskTier(a.path) - riskTier(b.path) || fileChangedLines(b) - fileChangedLines(a);
+  return (
+    Number(isRecent(b)) - Number(isRecent(a)) ||
+    riskTier(a.path) - riskTier(b.path) ||
+    fileChangedLines(b) - fileChangedLines(a)
+  );
 }
 
 export type SelectResult = { selected: ChangedFile[]; skipped: SkippedFile[]; note: string | null };
 
 /**
- * Applies the size limits: above 1,500 changed lines or 40 files, keeps the
- * riskiest files first (tier, then most changed) until the limits are reached.
+ * Applies the size limits (REVIEW_LIMITS): above them, keeps files in review
+ * priority (changed since the last review, then risk tier, then most changed)
+ * until the limits are reached.
  */
 export function selectFiles(
   files: readonly ChangedFile[],

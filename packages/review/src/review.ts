@@ -1,6 +1,6 @@
 import { REVIEW_LIMITS } from '@revo/shared';
 import { buildReviewContext } from './context';
-import { filterFiles, largePrNote, selectFiles } from './files';
+import { filterFiles, isRecent, largePrNote, selectFiles } from './files';
 import { applyVerifications, compareFindings, selectConfirmed, type JudgedFinding } from './postprocess';
 import { isReviewEngineError, withEarlierUsage } from './errors';
 import { addUsage, isPricedModel, roundUsd, usageCostUsd, ZERO_USAGE } from './pricing';
@@ -8,6 +8,7 @@ import { renderInstructions, SYSTEM_PROMPT } from './prompts';
 import { collectRelatedFiles } from './related';
 import { computeScore } from './score';
 import { buildSnippet } from './snippet';
+import { collectNameUsages } from './usages';
 import { estimateTokens, PASS_RESERVE_TOKENS } from './tokens';
 import type {
   ChangedFile,
@@ -46,17 +47,36 @@ export async function reviewChanges(input: ReviewInput): Promise<ReviewOutcome> 
         ignoreGlobs: settings.ignoreGlobs,
       })
     : [];
-  const related = mergeRelated(input.related, collected);
+  const names = await collectNameUsages({
+    files: sized.selected,
+    changedPaths: new Set(input.files.map((f) => f.path)),
+    related: [...input.related, ...collected],
+    readFile: input.readFile,
+    search: input.searchUsages,
+    ignoreGlobs: settings.ignoreGlobs,
+  });
+  // Users of a removed name first: under budget pressure, related files are dropped from the end.
+  const related = mergeRelated(input.related, [...names.extra, ...collected], names.extra.length);
 
   const budget = contextBudgetTokens(settings.instructions);
-  const context = buildReviewContext({ pr: input.pr, files: sized.selected, related, budgetTokens: budget });
-  const droppedByBudget: SkippedFile[] = context.droppedFiles.map((path) => ({ path, reason: 'size_limit' }));
+  const context = buildReviewContext({
+    pr: input.pr,
+    files: sized.selected,
+    related,
+    budgetTokens: budget,
+    usages: names.usages,
+  });
+  const droppedByBudget: SkippedFile[] = context.droppedFiles.map((path) => ({ path, reason: 'token_budget' }));
   const reviewedPaths = new Set(context.files.map((f) => f.path));
   const reviewed = sized.selected.filter((f) => reviewedPaths.has(f.path));
 
   const skippedFiles = [...filtered.skipped, ...sized.skipped, ...droppedByBudget];
   const total = filtered.reviewable.length;
   const notes = reviewed.length < total && reviewed.length > 0 ? [largePrNote(reviewed.length, total)] : [];
+  const recent = reviewed.filter(isRecent).length;
+  if (recent > 0) notes.push(recentNote(recent));
+  const outside = context.related.filter((p) => names.extra.some((f) => f.path === p));
+  if (outside.length > 0) notes.push(usageNote(outside));
   const base = {
     model: settings.model,
     engine: engine.kind,
@@ -93,16 +113,16 @@ export async function reviewChanges(input: ReviewInput): Promise<ReviewOutcome> 
     context,
   };
 
-  const found = await engine.find(ctx);
+  const pass1 = await engine.find(ctx);
   const verified =
-    found.findings.length > 0
-      ? await engine.verify(ctx, found.findings).catch((err: unknown) => {
+    pass1.findings.length > 0
+      ? await engine.verify(ctx, pass1.findings).catch((err: unknown) => {
           // Pass 1 is already billed: the failure must carry its cost too (budget, eval spend).
-          throw isReviewEngineError(err) ? withEarlierUsage(err, found.usage, settings.model) : err;
+          throw isReviewEngineError(err) ? withEarlierUsage(err, pass1.usage, settings.model) : err;
         })
       : { verifications: [], usage: ZERO_USAGE };
 
-  const judged = applyVerifications(found.findings, verified.verifications, {
+  const judged = applyVerifications(pass1.findings, verified.verifications, {
     reviewedPaths,
     categories: settings.categories,
   });
@@ -113,8 +133,8 @@ export async function reviewChanges(input: ReviewInput): Promise<ReviewOutcome> 
   const finish = (list: JudgedFinding[]) => list.map((f, index) => toReviewed(f, index, filesByPath));
 
   const score = computeScore(confirmed, settings.threshold);
-  const usage = addUsage(found.usage, verified.usage);
-  const costUsd = usageCostUsd(settings.model, found.usage) + usageCostUsd(settings.model, verified.usage);
+  const usage = addUsage(pass1.usage, verified.usage);
+  const costUsd = usageCostUsd(settings.model, pass1.usage) + usageCostUsd(settings.model, verified.usage);
 
   return {
     ...base,
@@ -137,8 +157,22 @@ export async function reviewChanges(input: ReviewInput): Promise<ReviewOutcome> 
   };
 }
 
+/** Note shown in the comment and dashboard when a push changed files after the last review. */
+export function recentNote(count: number): string {
+  return `${count} ${count === 1 ? 'file' : 'files'} changed since the last review: reviewed first, with the diff of the new commits.`;
+}
+
+/** Note naming the files outside the PR read because they use a name the change removes or renames. */
+export function usageNote(paths: readonly string[]): string {
+  return `Also read ${paths.length === 1 ? 'a file' : `${paths.length} files`} outside this PR that still ${paths.length === 1 ? 'uses' : 'use'} a name the change removes or renames: ${paths.join(', ')}.`;
+}
+
 /** Given related files first, then collected ones, without duplicates. */
-function mergeRelated(given: readonly RelatedFile[], collected: readonly RelatedFile[]): RelatedFile[] {
+function mergeRelated(
+  given: readonly RelatedFile[],
+  collected: readonly RelatedFile[],
+  extraSlots = 0,
+): RelatedFile[] {
   const seen = new Set<string>();
   const out: RelatedFile[] = [];
   for (const file of [...given, ...collected]) {
@@ -146,7 +180,7 @@ function mergeRelated(given: readonly RelatedFile[], collected: readonly Related
     seen.add(file.path);
     out.push(file);
   }
-  return out.slice(0, Math.max(given.length, REVIEW_LIMITS.maxRelatedFiles));
+  return out.slice(0, Math.max(given.length, REVIEW_LIMITS.maxRelatedFiles + extraSlots));
 }
 
 function toReviewed(f: JudgedFinding, index: number, files: Map<string, ChangedFile>): ReviewedFinding {

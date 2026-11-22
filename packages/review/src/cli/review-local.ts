@@ -5,10 +5,12 @@
  *
  * Reviews a local diff without GitHub and prints the findings and the score.
  * With --repo, the checkout gives the new versions of the changed files and
- * the related files (imports, Prisma schema). The diff may be applied there
+ * the related files (imports, Prisma schema), and `git grep` finds the files
+ * that still use a name the diff renames or removes. The diff may be applied there
  * or not: when a file still matches the old side, the diff is applied in
  * memory.
  */
+import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -105,6 +107,16 @@ const repo = values.repo ? resolve(cwd, values.repo) : null;
 if (repo && !existsSync(repo)) fail(`No folder at ${repo}`);
 const readFile = repo ? createDirectoryReader(repo, loadNewVersions(repo, files)) : undefined;
 
+/** Files of the checkout that contain `name` as a word (`git grep`); empty outside a git checkout. */
+function gitGrep(dir: string) {
+  return (name: string) =>
+    new Promise<string[]>((done) => {
+      execFile('git', ['-C', dir, 'grep', '-l', '-w', '-F', '-e', name], (err, stdout) => {
+        done(err ? [] : stdout.split('\n').filter(Boolean).slice(0, 20));
+      });
+    });
+}
+
 const color = process.stdout.isTTY && !values.json;
 const paint = (code: number, text: string) => (color ? `\u001b[${code}m${text}\u001b[0m` : text);
 const bold = (t: string) => paint(1, t);
@@ -118,7 +130,7 @@ try {
     related: [],
     settings: { ...DEFAULT_REPO_SETTINGS, model: model.data, instructions: values.instructions },
     engine,
-    ...(readFile ? { readFile } : {}),
+    ...(readFile && repo ? { readFile, searchUsages: gitGrep(repo) } : {}),
   });
 
   if (values.json) {

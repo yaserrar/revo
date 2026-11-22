@@ -14,12 +14,18 @@
  *   3. excerpts become patch only, lowest-priority file first
  *   4. whole files are dropped, lowest-priority first (never the last one)
  *   5. the last file's patch keeps its first hunks only
+ *
+ * Files changed since Revo's last review of the PR come first (so they are
+ * shrunk and dropped last) and also show the diff of those new commits.
+ * Names the change removes or renames are listed with the files in the
+ * context that still use them.
  */
 import { parsePatch, REVIEW_LIMITS } from '@revo/shared';
-import { compareFilePriority, riskTier } from './files';
+import { compareFilePriority, isRecent, riskTier } from './files';
 import { hunkWindows, lineCount, renderNumberedLines, renderNumberedPatch } from './patch';
 import { estimateTokens } from './tokens';
 import type { ChangedFile, PrInfo, RelatedFile } from './types';
+import type { NameUsage } from './usages';
 
 export type ContextFileMode = 'full' | 'excerpt' | 'patch';
 
@@ -33,6 +39,8 @@ export type ReviewContext = {
   related: string[];
   /** Changed files left out to fit the budget. */
   droppedFiles: string[];
+  /** Removed names listed, with the users kept in the context. */
+  usages: NameUsage[];
 };
 
 export type BuildContextInput = {
@@ -41,6 +49,8 @@ export type BuildContextInput = {
   related: readonly RelatedFile[];
   /** Tokens available for this context. */
   budgetTokens: number;
+  /** Names the change removes or renames, and where they are still used. */
+  usages?: readonly NameUsage[];
 };
 
 /** PR descriptions are often long templates; the start carries the intent. */
@@ -76,7 +86,9 @@ function renderFile({ file, mode, hunks }: Entry): string {
   const head = [
     `<file path="${attr(file.path)}"`,
     file.previousPath ? ` previous_path="${attr(file.previousPath)}"` : '',
-    ` status="${file.status}" priority="${PRIORITY_LABEL[riskTier(file.path)]}">`,
+    ` status="${file.status}" priority="${PRIORITY_LABEL[riskTier(file.path)]}"`,
+    isRecent(file) ? ' changed_since_last_review="true"' : '',
+    '>',
   ].join('');
   const parts = [head];
   const content = file.newContent;
@@ -85,6 +97,10 @@ function renderFile({ file, mode, hunks }: Entry): string {
     const patch = hunks === null ? file.patch : firstHunks(file.patch, hunks);
     const cut = hunks === null ? '' : ' truncated="true"';
     parts.push(`<diff${cut}>\n${renderNumberedPatch(patch)}\n</diff>`);
+  }
+  const latest = file.sinceLastReview?.patch;
+  if (latest && latest !== file.patch) {
+    parts.push(`<latest_push_diff>\n${renderNumberedPatch(latest)}\n</latest_push_diff>`);
   }
   if (content !== undefined && mode === 'full') {
     parts.push(`<new_file lines="${lineCount(content)}">\n${renderNumberedLines(content)}\n</new_file>`);
@@ -101,7 +117,29 @@ function renderFile({ file, mode, hunks }: Entry): string {
 }
 
 function renderRelated(file: RelatedFile): string {
-  return `<file path="${attr(file.path)}">\n${renderNumberedLines(file.content)}\n</file>`;
+  const reason = file.reason ? ` reason="${attr(file.reason)}"` : '';
+  return `<file path="${attr(file.path)}"${reason}>\n${renderNumberedLines(file.content)}\n</file>`;
+}
+
+const KIND_LABEL = {
+  key: 'object or type key renamed',
+  export: 'export removed or renamed',
+  method: 'method removed or renamed',
+} as const;
+
+/** The removed names whose users are still in the context, with only those users. */
+function keptUsages(usages: readonly NameUsage[], inContext: ReadonlySet<string>): NameUsage[] {
+  return usages
+    .filter((u) => inContext.has(u.removedIn))
+    .map((u) => ({ ...u, usedIn: u.usedIn.filter((p) => inContext.has(p)) }))
+    .filter((u) => u.usedIn.length > 0);
+}
+
+function renderUsages(usages: readonly NameUsage[]): string {
+  const lines = usages.map(
+    (u) => `- \`${u.name}\` (${KIND_LABEL[u.kind]} in ${u.removedIn}) is still used in: ${u.usedIn.join(', ')}`,
+  );
+  return [`<removed_names count="${usages.length}">`, ...lines, '</removed_names>'].join('\n');
 }
 
 function initialMode(file: ChangedFile): ContextFileMode {
@@ -116,7 +154,13 @@ function shrink(entry: Entry, mode: 'full' | 'excerpt'): ContextFileMode | null 
   return mode === 'full' ? 'excerpt' : 'patch';
 }
 
-export function buildReviewContext({ pr, files, related, budgetTokens }: BuildContextInput): ReviewContext {
+export function buildReviewContext({
+  pr,
+  files,
+  related,
+  budgetTokens,
+  usages = [],
+}: BuildContextInput): ReviewContext {
   const entries: Entry[] = [...files]
     .sort(compareFilePriority)
     .map((file) => ({ file, mode: initialMode(file), hunks: null }));
@@ -134,7 +178,9 @@ export function buildReviewContext({ pr, files, related, budgetTokens }: BuildCo
     return t;
   };
   const relatedTokens = keptRelated.map((r) => estimateTokens(renderRelated(r)));
-  const wrapperTokens = estimateTokens(prText) + 40;
+  // The list only shrinks as files are dropped: its full size is a safe estimate.
+  const usageTokens = usages.length > 0 ? estimateTokens(renderUsages(usages)) : 0;
+  const wrapperTokens = estimateTokens(prText) + 40 + usageTokens;
   const total = () =>
     wrapperTokens +
     entries.reduce((s, e) => s + tokensOf(e), 0) +
@@ -183,6 +229,8 @@ export function buildReviewContext({ pr, files, related, budgetTokens }: BuildCo
       '</related_files>',
     );
   }
+  const shown = keptUsages(usages, new Set([...entries.map((e) => e.file.path), ...keptRelated.map((r) => r.path)]));
+  if (shown.length > 0) sections.push(renderUsages(shown));
   const text = sections.join('\n\n');
   return {
     text,
@@ -190,5 +238,6 @@ export function buildReviewContext({ pr, files, related, budgetTokens }: BuildCo
     files: entries.map((e) => ({ path: e.file.path, mode: e.mode, truncated: e.hunks !== null })),
     related: keptRelated.map((r) => r.path),
     droppedFiles: dropped,
+    usages: shown,
   };
 }

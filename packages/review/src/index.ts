@@ -1,6 +1,6 @@
 // Public interface of @revo/review. Additive changes only (see AGENTS.md).
 // Node-only helpers (local file reader) live in '@revo/review/node'.
-export { contextBudgetTokens, reviewChanges } from './review';
+export { contextBudgetTokens, recentNote, reviewChanges, usageNote } from './review';
 export { computeScore, countBySeverity, pointsLost, type ScoreResult } from './score';
 export {
   FALLBACK_MODEL_PRICES,
@@ -36,6 +36,7 @@ export {
   createIgnoreMatcher,
   fileChangedLines,
   filterFiles,
+  isRecent,
   largePrNote,
   looksBinary,
   looksGenerated,
@@ -44,6 +45,19 @@ export {
   selectFiles,
 } from './files';
 export { buildReviewContext, type ContextFileMode, type ReviewContext } from './context';
+export {
+  collectNameUsages,
+  declaredIn,
+  isDistinctiveName,
+  mentions,
+  removedDeclarations,
+  removedNames,
+  usesName,
+  type NameKind,
+  type NameUsage,
+  type RemovedName,
+  type UsageResult,
+} from './usages';
 export {
   candidateFiles,
   collectRelatedFiles,
@@ -77,5 +91,6 @@ export type {
   ReviewedFinding,
   SkippedFile,
   SkippedFileReason,
+  UsageSearch,
   VerifyResult,
 } from './types';

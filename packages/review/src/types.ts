@@ -28,10 +28,27 @@ export type ChangedFile = {
   deletions: number;
   /** Full new content, when fetched (used for context and snippets). */
   newContent?: string;
+  /**
+   * Set when the file changed since Revo's last review of this PR (a later
+   * push): reviewed first, and `patch` is the diff of those new commits alone
+   * (missing when GitHub gives none, e.g. binary or too large).
+   */
+  sinceLastReview?: { patch?: string };
 };
 
-/** A file not changed by the PR but given as context (imports, Prisma schema). */
-export type RelatedFile = { path: string; content: string };
+/** A file not changed by the PR but given as context (imports, Prisma schema, users of a removed name). */
+export type RelatedFile = {
+  path: string;
+  content: string;
+  /** Why it is in the context, when it is not a plain import (shown to the model). */
+  reason?: string;
+};
+
+/**
+ * Paths of repo files that may contain `name` (a text search, e.g. GitHub code
+ * search). Results are re-checked against the file content at the PR head.
+ */
+export type UsageSearch = (name: string) => Promise<string[]>;
 
 export type PrInfo = { title: string; body: string };
 
@@ -80,6 +97,11 @@ export type ReviewInput = {
    * size limits and added to `related`.
    */
   readFile?: FileReader;
+  /**
+   * Searches the repo for files using a name the change removes or renames,
+   * so callers outside the change are given as context. Needs `readFile`.
+   */
+  searchUsages?: UsageSearch;
 };
 
 /** A finding ready to save and show. */
@@ -96,7 +118,8 @@ export type ReviewedFinding = Finding & {
   snippetStartLine: number;
 };
 
-export type SkippedFileReason = 'ignored' | 'removed' | 'binary' | 'size_limit';
+/** `size_limit`: over the line or file limits; `token_budget`: did not fit in the tokens of a pass. */
+export type SkippedFileReason = 'ignored' | 'removed' | 'binary' | 'size_limit' | 'token_budget';
 export type SkippedFile = { path: string; reason: SkippedFileReason };
 
 export type ReviewUsage = {

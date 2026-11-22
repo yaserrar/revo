@@ -133,7 +133,7 @@ describe('reviewChanges', () => {
 
   it('drops the lowest-priority files over the token budget and says so', async () => {
     const body = (i: number) =>
-      // 100 long (not minified) lines per file: under the 1,500 changed-line limit, over the token budget.
+      // 100 long (not minified) lines per file: under the changed-line limit, over the token budget.
       Array.from({ length: 100 }, (_, n) => `export const value${i}_${n} = '${'text '.repeat(290)}';`).join(
         '\n',
       );
@@ -162,7 +162,7 @@ describe('reviewChanges', () => {
     expect(outcome.status).toBe('done');
     expect(outcome.filesReviewed).toBeLessThan(12);
     expect(outcome.notes).toEqual([`Large PR: reviewed ${outcome.filesReviewed} of 12 files.`]);
-    expect(outcome.skippedFiles.every((s) => s.reason === 'size_limit')).toBe(true);
+    expect(outcome.skippedFiles.every((s) => s.reason === 'token_budget')).toBe(true);
     expect(seen[0]!.files[0]!.path).toBe('src/api/pay.ts');
     expect(seen[0]!.context.estimatedTokens).toBeLessThanOrEqual(contextBudgetTokens(''));
   });
