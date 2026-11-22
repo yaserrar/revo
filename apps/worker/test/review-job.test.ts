@@ -106,9 +106,11 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('review job against the mock GitHub (
 
   it('reviews files changed since the last review first and reads users of a removed name', async () => {
     w.app.setBaseFiles(w.repoGithubId, {
-      'src/web/order-card.ts': 'export const label = (o: { orderTotalCents: number }) => o.orderTotalCents;\n',
+      'src/web/order-card.ts':
+        'export const label = (o: { orderTotalCents: number }) => o.orderTotalCents;\n',
     });
-    const v1 = 'export function summary(o: { total: number }) {\n  return {\n    orderTotalCents: o.total,\n  };\n}\n';
+    const v1 =
+      'export function summary(o: { total: number }) {\n  return {\n    orderTotalCents: o.total,\n  };\n}\n';
     const pull = w.openPull([
       { path: 'src/api/summary.ts', before: null, after: v1 },
       { path: 'src/lib/util.ts', before: null, after: 'export const one = 1;\n' },
@@ -125,7 +127,9 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('review job against the mock GitHub (
     await runReviewJob(w.payload(pull), FIRST, w.deps(spy));
     expect(seen[0]!.files.some((f) => f.sinceLastReview)).toBe(false);
 
-    w.app.pushCommit(pull, [{ path: 'src/api/summary.ts', after: v1.replace('orderTotalCents', 'totalCents') }]);
+    w.app.pushCommit(pull, [
+      { path: 'src/api/summary.ts', after: v1.replace('orderTotalCents', 'totalCents') },
+    ]);
     await runReviewJob(w.payload(pull), FIRST, w.deps(spy));
     const ctx = seen[1]!;
     const summary = ctx.files.find((f) => f.path === 'src/api/summary.ts')!;

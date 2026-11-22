@@ -219,7 +219,9 @@ describe('renderSummaryComment (spec 10)', () => {
     };
     const md = renderSummaryComment(budget);
     expect(md).toContain('⚠️ **Partial review: 1 of 2 files.**');
-    expect(md).toContain('The reviewed files filled the 400,000-token limit of one review pass: files changed since');
+    expect(md).toContain(
+      'The reviewed files filled the 400,000-token limit of one review pass: files changed since',
+    );
     expect(md).not.toContain('10,000 changed lines');
     expect(md).toContain('1 over the token limit');
     expect(partialCoverage(budget)).toBe('1 of 2 files reviewed');

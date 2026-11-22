@@ -1,5 +1,11 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+
+// Integration tests use the test database: TEST_DATABASE_URL from CI or the repo's .env.
+const rootEnv = resolve(import.meta.dirname, '../../.env');
+if (existsSync(rootEnv)) process.loadEnvFile(rootEnv);
 
 export default defineConfig({
   test: {
@@ -7,7 +13,7 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     env: {
       LOG_LEVEL: 'silent',
-      DATABASE_URL: 'postgresql://user@localhost:5433/revo_test',
+      DATABASE_URL: process.env.TEST_DATABASE_URL ?? 'postgresql://user@localhost:5433/revo_test',
       AUTH_SECRET: 'test-secret-test-secret-test-secret-00',
     },
   },

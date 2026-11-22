@@ -118,7 +118,13 @@ const NOT_REVIEWED_SHORT: Record<NotReviewedReason, string> = {
   removed: 'deleted in this PR',
   binary: 'binary or without a diff',
 };
-const NOT_REVIEWED_ORDER: NotReviewedReason[] = ['size_limit', 'token_budget', 'ignored', 'removed', 'binary'];
+const NOT_REVIEWED_ORDER: NotReviewedReason[] = [
+  'size_limit',
+  'token_budget',
+  'ignored',
+  'removed',
+  'binary',
+];
 
 /** How much of the comment fits: each level drops more detail to stay under GitHub's limit. */
 type Detail = 'full' | 'no_excerpts' | 'table_only' | 'no_file_lists';

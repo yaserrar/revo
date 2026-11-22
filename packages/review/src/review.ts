@@ -66,7 +66,10 @@ export async function reviewChanges(input: ReviewInput): Promise<ReviewOutcome> 
     budgetTokens: budget,
     usages: names.usages,
   });
-  const droppedByBudget: SkippedFile[] = context.droppedFiles.map((path) => ({ path, reason: 'token_budget' }));
+  const droppedByBudget: SkippedFile[] = context.droppedFiles.map((path) => ({
+    path,
+    reason: 'token_budget',
+  }));
   const reviewedPaths = new Set(context.files.map((f) => f.path));
   const reviewed = sized.selected.filter((f) => reviewedPaths.has(f.path));
 

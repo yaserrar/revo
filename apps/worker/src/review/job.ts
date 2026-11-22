@@ -221,7 +221,10 @@ export async function runReviewJob(
     const since = await lastReviewedSha(prisma, pr.id, live.headSha);
     const recent = since
       ? await compareCommits(octokit, ref, since, live.headSha).catch((err: unknown) => {
-          log.warn({ pr: live.number, err: errorText(err) }, 'could not compare with the last reviewed commit');
+          log.warn(
+            { pr: live.number, err: errorText(err) },
+            'could not compare with the last reviewed commit',
+          );
           return null;
         })
       : null;

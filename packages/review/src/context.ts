@@ -137,7 +137,8 @@ function keptUsages(usages: readonly NameUsage[], inContext: ReadonlySet<string>
 
 function renderUsages(usages: readonly NameUsage[]): string {
   const lines = usages.map(
-    (u) => `- \`${u.name}\` (${KIND_LABEL[u.kind]} in ${u.removedIn}) is still used in: ${u.usedIn.join(', ')}`,
+    (u) =>
+      `- \`${u.name}\` (${KIND_LABEL[u.kind]} in ${u.removedIn}) is still used in: ${u.usedIn.join(', ')}`,
   );
   return [`<removed_names count="${usages.length}">`, ...lines, '</removed_names>'].join('\n');
 }
@@ -229,7 +230,10 @@ export function buildReviewContext({
       '</related_files>',
     );
   }
-  const shown = keptUsages(usages, new Set([...entries.map((e) => e.file.path), ...keptRelated.map((r) => r.path)]));
+  const shown = keptUsages(
+    usages,
+    new Set([...entries.map((e) => e.file.path), ...keptRelated.map((r) => r.path)]),
+  );
   if (shown.length > 0) sections.push(renderUsages(shown));
   const text = sections.join('\n\n');
   return {

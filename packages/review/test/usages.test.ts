@@ -5,12 +5,21 @@ import { compareFilePriority, selectFiles } from '../src/files';
 import { ZERO_USAGE } from '../src/pricing';
 import { reviewChanges } from '../src/review';
 import type { ChangedFile, EngineContext, ReviewEngine } from '../src/types';
-import { collectNameUsages, declaredIn, isDistinctiveName, mentions, removedNames, usesName } from '../src/usages';
+import {
+  collectNameUsages,
+  declaredIn,
+  isDistinctiveName,
+  mentions,
+  removedNames,
+  usesName,
+} from '../src/usages';
 
 const patch = (removed: string[], added: string[]) =>
-  [`@@ -1,${removed.length} +1,${added.length} @@`, ...removed.map((l) => `-${l}`), ...added.map((l) => `+${l}`)].join(
-    '\n',
-  );
+  [
+    `@@ -1,${removed.length} +1,${added.length} @@`,
+    ...removed.map((l) => `-${l}`),
+    ...added.map((l) => `+${l}`),
+  ].join('\n');
 
 /** The rename that broke dropwave's share page: an API response key, still read by the web client. */
 const SERVICE_PATCH = patch(
@@ -64,9 +73,13 @@ describe('removedNames', () => {
 
   it('names nothing when an object, a parameter or a Go assignment is only deleted', () => {
     // A deleted log call, where clause or fixture: no key takes their place.
-    expect(removedNames(patch(['  logger.info({', '    requestId: req.id,', '    durationMs: ms,', '  });'], []))).toEqual([]);
+    expect(
+      removedNames(patch(['  logger.info({', '    requestId: req.id,', '    durationMs: ms,', '  });'], [])),
+    ).toEqual([]);
     expect(removedNames(patch(['    deletedAt: null,'], ['    id: dropId,']))).toEqual([]);
-    expect(removedNames(patch(['\tuserName := r.FormValue("u")'], ['\tname := r.FormValue("u")']))).toEqual([]);
+    expect(removedNames(patch(['\tuserName := r.FormValue("u")'], ['\tname := r.FormValue("u")']))).toEqual(
+      [],
+    );
     // A key at another depth is not its replacement.
     expect(removedNames(patch(['      requiresAuth: true,'], ['  pathName: "/a",']))).toEqual([]);
   });
@@ -74,7 +87,12 @@ describe('removedNames', () => {
   it('keeps a method whose signature a formatter wrapped, and an export the new code still declares', () => {
     const wrapped = patch(
       ['  async findDropById(id: string): Promise<Drop | null> {'],
-      ['  async findDropById(', '    id: string,', '    options: FindOptions = {},', '  ): Promise<Drop | null> {'],
+      [
+        '  async findDropById(',
+        '    id: string,',
+        '    options: FindOptions = {},',
+        '  ): Promise<Drop | null> {',
+      ],
     );
     expect(removedNames(wrapped)).toEqual([]);
     const moved = patch(['export function formatPrice(cents: number) {'], []);
@@ -85,7 +103,7 @@ describe('removedNames', () => {
   it('matches a removed key only where it is used as a property', () => {
     expect(usesName('if (data.unlockedUntil) x()', 'unlockedUntil', 'key')).toBe(true);
     expect(usesName('type D = { unlockedUntil: string | null }', 'unlockedUntil', 'key')).toBe(true);
-    expect(usesName("const { unlockedUntil } = data", 'unlockedUntil', 'key')).toBe(true);
+    expect(usesName('const { unlockedUntil } = data', 'unlockedUntil', 'key')).toBe(true);
     expect(usesName("res['unlockedUntil']", 'unlockedUntil', 'key')).toBe(true);
     expect(usesName('const unlockedUntil = compute();', 'unlockedUntil', 'key')).toBe(false);
     expect(usesName('return unlockedUntil(drop);', 'unlockedUntil', 'export')).toBe(true);
@@ -111,7 +129,9 @@ describe('collectNameUsages', () => {
     patch: SERVICE_PATCH,
     newContent: 'return { burnOnce: drop.burnAfterDownload };',
   });
-  const types = changed('apps/web/types/drop.ts', { newContent: 'export type Drop = { burnAfterDownload: boolean };' });
+  const types = changed('apps/web/types/drop.ts', {
+    newContent: 'export type Drop = { burnAfterDownload: boolean };',
+  });
 
   it('lists the changed and related files that still use a removed name', async () => {
     const r = await collectNameUsages({
@@ -162,7 +182,8 @@ describe('collectNameUsages', () => {
       {
         path: 'apps/web/components/share-card.tsx',
         content: repo['apps/web/components/share-card.tsx'],
-        reason: 'still uses `burnAfterDownload`, which this change removes or renames in apps/api/src/drops/drops.service.ts',
+        reason:
+          'still uses `burnAfterDownload`, which this change removes or renames in apps/api/src/drops/drops.service.ts',
       },
     ]);
     expect(r.usages[0]!.usedIn).toEqual(['apps/web/components/share-card.tsx']);
@@ -170,7 +191,10 @@ describe('collectNameUsages', () => {
 
   it('caps searches and files, and stops searching at the first error', async () => {
     const many = changed('src/api/a.ts', {
-      patch: patch(['  firstName: a,', '  lastName: b,', '  postCode: c,', '  cityName: d,'], ['  givenName: a,']),
+      patch: patch(
+        ['  firstName: a,', '  lastName: b,', '  postCode: c,', '  cityName: d,'],
+        ['  givenName: a,'],
+      ),
     });
     let calls = 0;
     const failing = await collectNameUsages({
@@ -186,7 +210,10 @@ describe('collectNameUsages', () => {
     expect(failing).toEqual({ usages: [], extra: [] });
 
     const repo = Object.fromEntries(
-      Array.from({ length: 6 }, (_, i) => [`src/ui/f${i}.ts`, 'u.firstName u.lastName u.postCode u.cityName']),
+      Array.from({ length: 6 }, (_, i) => [
+        `src/ui/f${i}.ts`,
+        'u.firstName u.lastName u.postCode u.cityName',
+      ]),
     );
     let searches = 0;
     const capped = await collectNameUsages({
@@ -225,7 +252,9 @@ describe('files changed since the last review', () => {
   });
 
   it('come first, before riskier and larger files', () => {
-    const sorted = [file('src/api/pay.ts', 900), file('src/lib/format.ts', 1, true)].sort(compareFilePriority);
+    const sorted = [file('src/api/pay.ts', 900), file('src/lib/format.ts', 1, true)].sort(
+      compareFilePriority,
+    );
     expect(sorted.map((f) => f.path)).toEqual(['src/lib/format.ts', 'src/api/pay.ts']);
   });
 
@@ -250,7 +279,9 @@ describe('files changed since the last review', () => {
       budgetTokens: 100_000,
     });
     expect(ctx.files[0]!.path).toBe('src/lib/format.ts');
-    expect(ctx.text).toContain('path="src/lib/format.ts" status="modified" priority="normal" changed_since_last_review="true">');
+    expect(ctx.text).toContain(
+      'path="src/lib/format.ts" status="modified" priority="normal" changed_since_last_review="true">',
+    );
     expect(ctx.text).toContain(
       '<latest_push_diff>\n@@ -2,1 +2,1 @@\n      - old b\n    2 + export const b = 2;\n</latest_push_diff>',
     );
@@ -270,7 +301,13 @@ describe('removed names in the context', () => {
     const ctx = buildReviewContext({
       pr: { title: 't', body: '' },
       files: [changed('apps/api/drops.service.ts', { newContent: 'x' })],
-      related: [{ path: 'apps/web/card.tsx', content: 'drop.burnAfterDownload', reason: 'still uses `burnAfterDownload`' }],
+      related: [
+        {
+          path: 'apps/web/card.tsx',
+          content: 'drop.burnAfterDownload',
+          reason: 'still uses `burnAfterDownload`',
+        },
+      ],
       budgetTokens: 100_000,
       usages: [
         {
@@ -295,7 +332,12 @@ describe('removed names in the context', () => {
       related: [{ path: 'apps/web/card.tsx', content: 'y'.repeat(40_000) }],
       budgetTokens: 2_000,
       usages: [
-        { name: 'burnAfterDownload', kind: 'key', removedIn: 'apps/api/drops.service.ts', usedIn: ['apps/web/card.tsx'] },
+        {
+          name: 'burnAfterDownload',
+          kind: 'key',
+          removedIn: 'apps/api/drops.service.ts',
+          usedIn: ['apps/web/card.tsx'],
+        },
       ],
     });
     expect(ctx.related).toEqual([]);

@@ -7,6 +7,7 @@ import { getSessionUser, type SessionUser } from '../auth/session';
 import { JSON_BODY_LIMIT, readBodyText } from './body';
 import { toErrorResponse } from './error-response';
 import { unauthorized } from './errors';
+import { clientIp } from './client-ip';
 import { assertRateLimit, RATE_LIMITS } from './rate-limit';
 
 type Infer<T> = T extends z.ZodType ? z.infer<T> : undefined;
@@ -42,12 +43,6 @@ type HandlerContext<P, Q, B, A extends AuthLevel> = {
   query: Infer<Q>;
   body: Infer<B>;
 };
-
-function clientIp(req: NextRequest): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown'
-  );
-}
 
 /** An empty or malformed body parses as `{}` (the schema then says what is missing). */
 function parseJson(text: string): unknown {

@@ -383,7 +383,10 @@ export class MockAppState {
       });
       const commits = pull.commits.slice(from + 1, to + 1).map((c, i) => ({
         sha: c.sha,
-        parents: [{ sha: pull.commits[from + i]!.sha }, ...(this.mergeCommits.has(c.sha) ? [{ sha: 'b'.repeat(40) }] : [])],
+        parents: [
+          { sha: pull.commits[from + i]!.sha },
+          ...(this.mergeCommits.has(c.sha) ? [{ sha: 'b'.repeat(40) }] : []),
+        ],
       }));
       return {
         status,

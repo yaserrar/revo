@@ -9,17 +9,12 @@ import { logger } from '~/server/config/logger';
 import { readBodyText, WEBHOOK_BODY_LIMIT } from '~/server/http/body';
 import { toErrorResponse } from '~/server/http/error-response';
 import { badRequest, HttpError } from '~/server/http/errors';
+import { clientIp } from '~/server/http/client-ip';
 import { assertRateLimit, RATE_LIMITS } from '~/server/http/rate-limit';
 import { claimDelivery, finishDelivery } from './deliveries.service';
 import { webhookVerifier } from './github-app';
 import { handleInstallationEvent, handleInstallationRepositoriesEvent } from './installations.service';
 import { handlePullRequestEvent } from './pull-requests.service';
-
-function clientIp(req: Request): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown'
-  );
-}
 
 async function dispatch(event: string, payload: unknown, deliveryId: string): Promise<string> {
   switch (event) {
