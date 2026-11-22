@@ -15,7 +15,11 @@ describe('token encryption', () => {
 
   it('rejects tampered payloads', () => {
     const [v, iv, tag, data] = encryptSecret('value').split('.');
-    const flipped = data!.slice(0, -1) + (data!.endsWith('A') ? 'B' : 'A');
+    // Flip a bit of the decoded ciphertext: editing the last base64 character
+    // can change only its unused padding bits, leaving the bytes as they were.
+    const bytes = Buffer.from(data!, 'base64url');
+    bytes[0] = bytes[0]! ^ 0x01;
+    const flipped = bytes.toString('base64url');
     expect(() => decryptSecret([v, iv, tag, flipped].join('.'))).toThrow();
     expect(() => decryptSecret('nope')).toThrow(/format/);
   });
