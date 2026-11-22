@@ -1,5 +1,9 @@
 # Deploying Revo on EC2
 
+> This guide runs Revo alone on a fresh server, built there. To deploy it with GitHub Actions next
+> to other apps that share one Traefik and Postgres (how revo.asrar.software runs), see
+> [deploy/ec2/README.md](./deploy/ec2/README.md).
+
 Revo runs as six containers from `docker-compose.yml` on one server:
 
 | Service    | What it does                                                                                 |

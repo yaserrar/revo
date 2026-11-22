@@ -1,0 +1,120 @@
+name: Deploy
+
+# Every push to main: check, build the three images, deploy them to the server.
+# One-time setup (server, DNS, secrets): deploy/ec2/README.md.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never run two deploys at once; a newer push waits for the current one.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  check:
+    name: Check
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build ${{ matrix.image }}
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - image: web
+            dockerfile: apps/web/Dockerfile
+          - image: worker
+            dockerfile: apps/worker/Dockerfile
+          - image: migrate
+            dockerfile: packages/db/Dockerfile
+    steps:
+      - uses: actions/checkout@v7
+
+      # ghcr.io image names must be lowercase.
+      - name: Image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/revo-${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ github.sha }}
+            ${{ steps.image.outputs.name }}:latest
+          # Links the package to this repo on GitHub.
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  deploy:
+    name: Deploy to EC2
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload compose file
+        run: scp -i ~/.ssh/deploy_key deploy/ec2/docker-compose.yml "$EC2_USER@$EC2_HOST:~/revo/docker-compose.yml"
+
+      # The registry token only lives for this job, so log in, pull, and log out again.
+      # The worker gets up to 5 minutes to finish running reviews (stop_grace_period).
+      - name: Pull and restart
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$EC2_USER@$EC2_HOST" bash -s <<EOF
+          set -euo pipefail
+          cd ~/revo
+          sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=${GITHUB_SHA}/" .env
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker compose pull
+          docker logout ghcr.io
+          # Fails here if the migrations fail: web and worker depend on them.
+          docker compose up -d --remove-orphans || { docker compose logs --tail 80 migrate; exit 1; }
+          # Wait for web and worker to report healthy (their image healthchecks).
+          for i in \$(seq 1 40); do
+            web=\$(docker inspect -f '{{.State.Health.Status}}' \$(docker compose ps -q web))
+            worker=\$(docker inspect -f '{{.State.Health.Status}}' \$(docker compose ps -q worker))
+            if [ "\$web" = healthy ] && [ "\$worker" = healthy ]; then echo "web and worker healthy"; break; fi
+            if [ "\$i" = 40 ]; then
+              echo "not healthy after 200 s: web=\$web worker=\$worker"
+              docker compose logs --tail 80 migrate web worker
+              exit 1
+            fi
+            sleep 5
+          done
+          # Unused images older than a week (any app on this server); recent ones stay for a quick rollback.
+          docker image prune -af --filter "until=168h"
+          EOF

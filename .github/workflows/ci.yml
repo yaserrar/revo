@@ -1,0 +1,67 @@
+name: CI
+
+# Type-checks, lints and tests every pull request and every push to a branch
+# other than main. deploy.yml calls this same workflow before it deploys main.
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+  workflow_call:
+
+# A newer push to the same branch or pull request cancels the run it replaces.
+# When Deploy calls it, github.workflow is "Deploy": never cancel a deploy's check.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.workflow == 'CI' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Types, lint and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine # same as the server
+        env:
+          POSTGRES_USER: revo
+          POSTGRES_PASSWORD: revo
+          POSTGRES_DB: revo_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U revo -d revo_test" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # Integration tests (worker against the mock GitHub, queue, database).
+      TEST_DATABASE_URL: postgresql://revo:revo@localhost:5432/revo_test
+      # prisma generate needs a URL; nothing connects to it during the build.
+      DATABASE_URL: postgresql://revo:revo@localhost:5432/revo_test
+      REDIS_URL: redis://localhost:6379/7
+      TURBO_TELEMETRY_DISABLED: '1'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      # pnpm at the version pinned in package.json (packageManager).
+      - run: corepack enable
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Migrate the test database
+        run: pnpm db:test:prepare
+
+      - name: Formatting
+        run: pnpm format:check
+
+      - name: Types, lint and tests
+        run: pnpm check

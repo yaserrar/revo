@@ -1,0 +1,101 @@
+# Revo on a server that already runs a shared infra stack (Traefik + Postgres),
+# deployed by .github/workflows/deploy.yml. Lives in ~/revo on the server; each
+# deploy copies this file there, sets IMAGE_TAG in ~/revo/.env and restarts.
+#
+# Needs from the infra stack (see deploy/ec2/README.md):
+#   proxy network            Traefik reaches `web` here
+#   data network             Postgres, as the container `postgres`
+#   websecure entrypoint, letsencryptresolver, secure-headers@docker middleware
+#
+# ~/revo/.env (from deploy/ec2/.env.example) is read twice: by Compose to fill
+# in ${...} below, and by the web and worker containers (env_file).
+# Self-hosting on a fresh server instead? Use the root docker-compose.yml.
+name: revo
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: '10m', max-file: '3' }
+
+services:
+  # The review queue (BullMQ). Private to Revo: only web and worker reach it.
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    # BullMQ needs noeviction; AOF keeps queued reviews across restarts.
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    volumes:
+      - redisdata:/data
+    networks: [backend]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  # One-shot: applies pending Prisma migrations, then exits. web and worker wait for it.
+  migrate:
+    image: ghcr.io/${IMAGE_OWNER:?set IMAGE_OWNER in .env}/revo-migrate:${IMAGE_TAG:-latest}
+    restart: 'no'
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
+    networks: [data]
+    logging: *logging
+
+  web:
+    image: ghcr.io/${IMAGE_OWNER}/revo-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_URL: https://${DOMAIN:?set DOMAIN in .env}
+      # Least privilege: only the worker calls Claude.
+      ANTHROPIC_API_KEY: ''
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    # proxy: reached by Traefik. data: Postgres. backend: Redis.
+    networks: [proxy, data, backend]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.revo-web.rule=Host(`${DOMAIN}`)
+      - traefik.http.routers.revo-web.entrypoints=websecure
+      - traefik.http.routers.revo-web.tls.certresolver=letsencryptresolver
+      - traefik.http.routers.revo-web.middlewares=secure-headers@docker,revo-body-limit
+      # GitHub webhook payloads are at most 25 MB; dashboard requests are tiny.
+      - traefik.http.middlewares.revo-body-limit.buffering.maxRequestBodyBytes=26214400
+      - traefik.http.services.revo-web.loadbalancer.server.port=3000
+    logging: *logging
+
+  worker:
+    image: ghcr.io/${IMAGE_OWNER}/revo-worker:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # SIGTERM lets running reviews finish (a large review can take a few minutes).
+    stop_grace_period: 5m
+    env_file: .env
+    environment:
+      APP_URL: https://${DOMAIN}
+      # Real reviews only: the worker refuses the fake engine in production.
+      REVO_ENGINE: claude
+      # Least privilege: the worker never signs users in.
+      AUTH_SECRET: ''
+      TOKEN_ENCRYPTION_KEY: ''
+      GITHUB_CLIENT_SECRET: ''
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    # data: Postgres. backend: Redis, and the way out to GitHub and the Claude API.
+    networks: [data, backend]
+    logging: *logging
+
+networks:
+  proxy:
+    external: true
+  data:
+    external: true
+  # Not `internal`: web and worker call GitHub and the Claude API through it.
+  backend:
+    name: revo_backend
+
+volumes:
+  redisdata:
