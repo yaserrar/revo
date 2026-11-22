@@ -94,7 +94,7 @@ const large: SummaryInput = {
     reason: 'size_limit' as const,
   })),
   changedFiles: 83,
-  changedLines: 7_921,
+  changedLines: 14_210,
   notes: ['Large PR: reviewed 10 of 69 files.'],
 };
 
@@ -201,13 +201,28 @@ describe('renderSummaryComment (spec 10)', () => {
     expect(lines[1]).toBe('## 🟢 Revo · 100/100 · Good to merge · partial review');
     expect(lines[3]).toContain('threshold of 70, on the reviewed files only.');
     expect(lines[5]).toBe(
-      '⚠️ **Partial review: 10 of 69 files.** This PR changes 7,921 lines in 83 files. Revo reviews up to 1,500 changed lines or 40 files per PR (after skipping lockfiles and generated code), highest-risk paths first. The score covers only the reviewed files: split the PR for a full review.',
+      '⚠️ **Partial review: 10 of 69 files.** This PR changes 14,210 lines in 83 files. Revo reviews up to 10,000 changed lines or 100 files per PR (after skipping lockfiles and generated code): files changed since the last review first, then the highest-risk paths. The score covers only the reviewed files: split the PR for a full review.',
     );
     expect(md).toContain('| **100** / 100 | 0 | 0 | 0 | 10 of 69 |');
     expect(md).toContain('- …and 19 more (listed in the dashboard)');
     expect(md).not.toContain('Large PR: reviewed');
     expect(partialCoverage(large)).toBe('10 of 69 files reviewed');
     expect(partialCoverage(base)).toBeNull();
+  });
+
+  it('names the token limit when files were dropped to fit one pass, not the line limits', () => {
+    const budget: SummaryInput = {
+      ...base,
+      changedLines: 3_200,
+      reviewedFiles: ['src/api/orders.ts'],
+      notReviewed: [{ path: 'src/fixtures/big.ts', reason: 'token_budget' }],
+    };
+    const md = renderSummaryComment(budget);
+    expect(md).toContain('⚠️ **Partial review: 1 of 2 files.**');
+    expect(md).toContain('The reviewed files filled the 400,000-token limit of one review pass: files changed since');
+    expect(md).not.toContain('10,000 changed lines');
+    expect(md).toContain('1 over the token limit');
+    expect(partialCoverage(budget)).toBe('1 of 2 files reviewed');
   });
 
   it('renders the 100/100 variant without a problems section', () => {

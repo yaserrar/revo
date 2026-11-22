@@ -39,7 +39,7 @@ export type SummaryFinding = {
 };
 
 /** Why a changed file was not reviewed (same values as `@revo/review`). */
-export type NotReviewedReason = 'ignored' | 'removed' | 'binary' | 'size_limit';
+export type NotReviewedReason = 'ignored' | 'removed' | 'binary' | 'size_limit' | 'token_budget';
 
 export type SummaryInput = {
   score: number;
@@ -104,6 +104,7 @@ const COUNT_NOUN: Record<Severity, [string, string]> = {
 };
 const NOT_REVIEWED_LABELS: Record<NotReviewedReason, string> = {
   size_limit: 'Over the size limit',
+  token_budget: 'Did not fit in the token limit of one review pass',
   ignored:
     'Skipped by ignore rules (lockfiles, generated or minified code, images and other assets, or the repo’s patterns)',
   removed: 'Deleted in this PR',
@@ -112,11 +113,12 @@ const NOT_REVIEWED_LABELS: Record<NotReviewedReason, string> = {
 /** Short form for the one-line coverage sentence. */
 const NOT_REVIEWED_SHORT: Record<NotReviewedReason, string> = {
   size_limit: 'over the size limit',
+  token_budget: 'over the token limit',
   ignored: 'skipped by ignore rules',
   removed: 'deleted in this PR',
   binary: 'binary or without a diff',
 };
-const NOT_REVIEWED_ORDER: NotReviewedReason[] = ['size_limit', 'ignored', 'removed', 'binary'];
+const NOT_REVIEWED_ORDER: NotReviewedReason[] = ['size_limit', 'token_budget', 'ignored', 'removed', 'binary'];
 
 /** How much of the comment fits: each level drops more detail to stay under GitHub's limit. */
 type Detail = 'full' | 'no_excerpts' | 'table_only' | 'no_file_lists';
@@ -195,7 +197,7 @@ function countOf(rows: ScoreBreakdownRow[], severity: Severity): number {
 }
 
 const overLimitCount = (input: SummaryInput) =>
-  input.notReviewed.filter((f) => f.reason === 'size_limit').length;
+  input.notReviewed.filter((f) => f.reason === 'size_limit' || f.reason === 'token_budget').length;
 const reviewableCount = (input: SummaryInput) => input.reviewedFiles.length + overLimitCount(input);
 const isPartial = (input: SummaryInput) => overLimitCount(input) > 0;
 
@@ -219,11 +221,15 @@ function checkLine(input: SummaryInput): string {
 
 function partialWarning(input: SummaryInput): string[] {
   if (!isPartial(input)) return [];
+  const overLimits = input.notReviewed.some((f) => f.reason === 'size_limit');
+  const why = overLimits
+    ? `${PRODUCT_NAME} reviews up to ${thousands(REVIEW_LIMITS.maxChangedLines)} changed lines or ${REVIEW_LIMITS.maxFiles} files per PR ` +
+      '(after skipping lockfiles and generated code)'
+    : `The reviewed files filled the ${thousands(REVIEW_LIMITS.maxInputTokensPerPass)}-token limit of one review pass`;
   return [
     `⚠️ **Partial review: ${input.reviewedFiles.length} of ${reviewableCount(input)} files.** ` +
       `This PR changes ${thousands(input.changedLines)} lines in ${plural(input.changedFiles, 'file')}. ` +
-      `${PRODUCT_NAME} reviews up to ${thousands(REVIEW_LIMITS.maxChangedLines)} changed lines or ${REVIEW_LIMITS.maxFiles} files per PR ` +
-      '(after skipping lockfiles and generated code), highest-risk paths first. ' +
+      `${why}: files changed since the last review first, then the highest-risk paths. ` +
       'The score covers only the reviewed files: split the PR for a full review.',
     '',
   ];

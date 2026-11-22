@@ -190,17 +190,24 @@ export function isStaleInFlight(
 }
 
 export const REVIEW_LIMITS = {
-  /** Above this many changed lines (after filtering), review the riskiest files first. */
-  maxChangedLines: 1_500,
-  /** Above this many files (after filtering), review the riskiest files first. */
-  maxFiles: 40,
-  /** Hard limit of input tokens per pass. */
-  maxInputTokensPerPass: 150_000,
+  /**
+   * Above this many changed lines (after filtering), review the files changed
+   * since the last review first, then the riskiest.
+   */
+  maxChangedLines: 10_000,
+  /** Above this many files (after filtering), same order as above. */
+  maxFiles: 100,
+  /** Hard limit of input tokens per pass (every selectable model has a 1M-token context window). */
+  maxInputTokensPerPass: 400_000,
   /** Send the full new file when it is shorter than this. */
   fullFileMaxLines: 600,
   /** Otherwise send the changed hunks with this many lines around each. */
   hunkContextLines: 40,
   maxRelatedFiles: 5,
+  /** Files outside the change that still use a name it removes or renames, on top of the related files. */
+  maxUsageFiles: 3,
+  /** Names searched for in files outside the change (each search is one GitHub API call). */
+  maxUsageSearches: 3,
   /** Findings requested from pass 1. */
   maxFindingsPass1: 10,
   /** Snippets stored for display (privacy: never full files). */

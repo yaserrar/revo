@@ -1,5 +1,5 @@
 /**
- * Token estimates for the per-pass budget (spec 7.3: 150,000 input tokens).
+ * Token estimates for the per-pass budget (REVIEW_LIMITS.maxInputTokensPerPass).
  *
  * A calibrated heuristic instead of a count_tokens call per review: it costs
  * nothing and needs no network. Claude's current tokenizer averages about 3 to

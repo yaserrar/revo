@@ -31,9 +31,13 @@ import {
 export type ClaudeEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
-/** Thinking plus up to 10 findings fit well inside this; non-streaming stays under SDK timeouts. */
+/** Thinking plus up to 10 findings fit well inside this for contexts up to LARGE_CONTEXT_TOKENS. */
 const DEFAULT_MAX_TOKENS = 16_000;
-const REQUEST_TIMEOUT_MS = 5 * 60_000;
+/** Above this many context tokens, the model reads (and thinks about) much more: allow more output. */
+const LARGE_CONTEXT_TOKENS = 150_000;
+const LARGE_CONTEXT_MAX_TOKENS = 32_000;
+/** Large PRs send up to 400k tokens per pass: leave room for long reads. */
+const REQUEST_TIMEOUT_MS = 10 * 60_000;
 
 /** One API call, for logs. Carries no code and no prompt text. */
 export type ClaudeCallEvent = {
@@ -106,13 +110,16 @@ export function createClaudeEngine(options: ClaudeEngineOptions = {}): ReviewEng
     options.client ??
     new Anthropic({ ...(options.apiKey ? { apiKey: options.apiKey } : {}), timeout: REQUEST_TIMEOUT_MS });
   const effort = options.effort ?? 'high';
-  const maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
+  // The client's explicit timeout (10 min) applies to every call, whatever max_tokens is.
+  const maxTokensFor = (ctx: EngineContext) =>
+    options.maxTokens ??
+    (ctx.context.estimatedTokens > LARGE_CONTEXT_TOKENS ? LARGE_CONTEXT_MAX_TOKENS : DEFAULT_MAX_TOKENS);
 
   function request(ctx: EngineContext, task: string): Body {
     const instructions = renderInstructions(ctx.settings.instructions);
     return {
       model: ctx.model,
-      max_tokens: maxTokens,
+      max_tokens: maxTokensFor(ctx),
       betas: [FALLBACK_BETA],
       fallbacks: 'default',
       thinking: { type: 'adaptive' },
@@ -177,7 +184,7 @@ export function createClaudeEngine(options: ClaudeEngineOptions = {}): ReviewEng
         throw new ReviewEngineError('refusal', pass, `category ${category}`, { usage });
       }
       if (response.stop_reason === 'max_tokens') {
-        throw new ReviewEngineError('max_tokens', pass, `max_tokens ${maxTokens} reached`, { usage });
+        throw new ReviewEngineError('max_tokens', pass, `max_tokens ${maxTokensFor(ctx)} reached`, { usage });
       }
       if (response.stop_reason === 'model_context_window_exceeded') {
         throw new ReviewEngineError('bad_request', pass, 'context window exceeded', { usage });
