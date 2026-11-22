@@ -84,5 +84,5 @@ export async function signIn(page: Page, login = 'maya-chen') {
   await page.request.post(`${MOCK_URL}/__mock/user`, { form: { login } });
   await page.goto('/sign-in');
   await page.getByRole('button', { name: 'Sign in with GitHub' }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/overview$/);
 }
