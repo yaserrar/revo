@@ -4,6 +4,8 @@
  */
 import type {
   AccountType as SharedAccountType,
+  AiAccess as SharedAiAccess,
+  AiSource as SharedAiSource,
   FeedbackOutcome as SharedFeedbackOutcome,
   PrState as SharedPrState,
   RepoPermission as SharedRepoPermission,
@@ -15,6 +17,8 @@ import type {
 } from '@revo/shared';
 import type {
   AccountType,
+  AiAccess,
+  AiSource,
   FeedbackOutcome,
   PrState,
   RepoPermission,
@@ -30,6 +34,8 @@ type Assert<T extends true> = T;
 
 export type EnumParity = [
   Assert<Same<AccountType, SharedAccountType>>,
+  Assert<Same<AiAccess, SharedAiAccess>>,
+  Assert<Same<AiSource, SharedAiSource>>,
   Assert<Same<FeedbackOutcome, SharedFeedbackOutcome>>,
   Assert<Same<PrState, SharedPrState>>,
   Assert<Same<RepoPermission, SharedRepoPermission>>,

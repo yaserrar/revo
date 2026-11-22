@@ -69,6 +69,8 @@ export type SummaryInput = {
   notes: string[];
   /** "Claude Sonnet 5.5" (or the offline test engine). */
   modelName: string;
+  /** Who paid, after the model in the footer: "on Revo's free tier (3 of 20 reviews this month)". */
+  paidBy?: string | null;
   trigger: 'auto' | 'manual';
   durationMs: number;
   /** Input tokens including cache writes and reads, as on the dashboard. */
@@ -450,7 +452,7 @@ function headline(input: SummaryInput): string {
 
 function runDetails(input: SummaryInput): string {
   return [
-    input.modelName,
+    input.paidBy ? `${input.modelName} ${input.paidBy}` : input.modelName,
     ...(input.trigger === 'manual' ? ['run with Review again'] : []),
     formatDuration(input.durationMs),
     `${formatTokens(input.tokensIn)} tokens in, ${formatTokens(input.tokensOut)} out`,

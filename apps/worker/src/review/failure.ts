@@ -1,5 +1,12 @@
 import { githubErrorStatus, isGithubRateLimit } from '@revo/github';
-import { isReviewEngineError, REVIEW_ENGINE_ERROR_MESSAGES, usageCostUsd } from '@revo/review';
+import {
+  isReviewEngineError,
+  REVIEW_ENGINE_ERROR_MESSAGES,
+  SUBSCRIPTION_ERROR_MESSAGES,
+  usageCostUsd,
+} from '@revo/review';
+import { accountKeyRefusedText } from '@revo/shared';
+import { AccountKeyError } from './ai-access';
 import type { SpentUsage } from './store';
 
 export type Failure = {
@@ -19,12 +26,27 @@ function githubRetryable(err: unknown, status: number): boolean {
   return status >= 500 || isGithubRateLimit(err);
 }
 
-/** Turns any error of a review attempt into a stored message and a retry decision. */
-export function describeFailure(err: unknown, model: string): Failure {
+/**
+ * Turns any error of a review attempt into a stored message and a retry
+ * decision. `accountKeyOf` names the account when the review ran on its own
+ * API key: a rejected key then says whose key to update. `subscription`: the
+ * review ran on the local Claude subscription, so sign-in and usage-limit
+ * failures are about Claude Code, not an API key.
+ */
+export function describeFailure(
+  err: unknown,
+  model: string,
+  ctx: { accountKeyOf?: string; subscription?: boolean } = {},
+): Failure {
+  if (err instanceof AccountKeyError) return { message: err.message, retryable: false, spent: null };
   if (isReviewEngineError(err)) {
     const usage = err.usage;
     return {
-      message: REVIEW_ENGINE_ERROR_MESSAGES[err.code],
+      message:
+        err.code === 'auth' && ctx.accountKeyOf
+          ? accountKeyRefusedText(ctx.accountKeyOf)
+          : ((ctx.subscription ? SUBSCRIPTION_ERROR_MESSAGES[err.code] : undefined) ??
+            REVIEW_ENGINE_ERROR_MESSAGES[err.code]),
       retryable: err.retryable,
       spent: usage
         ? {

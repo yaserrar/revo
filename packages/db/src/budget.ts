@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from './generated/prisma/client';
+import type { AiSource } from './generated/prisma/enums';
 import { decimalToNumber, startOfUtcMonth } from './convert';
 
 /**
@@ -28,6 +29,8 @@ export function reviewCostEntry(input: {
   reviewId: string;
   costUsd: number;
   spentAt?: Date;
+  /** What paid (the free tier counts only Revo's own spend). */
+  aiSource?: AiSource;
 }): Prisma.ReviewCostCreateManyInput[] {
   if (!(input.costUsd > 0)) return [];
   return [
@@ -36,6 +39,7 @@ export function reviewCostEntry(input: {
       reviewId: input.reviewId,
       costUsd: input.costUsd.toFixed(6),
       spentAt: input.spentAt ?? new Date(),
+      ...(input.aiSource ? { aiSource: input.aiSource } : {}),
     },
   ];
 }

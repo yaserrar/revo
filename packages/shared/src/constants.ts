@@ -125,6 +125,8 @@ export const SKIP_REASONS = [
   'too_large',
   'no_reviewable_files',
   'disabled',
+  'free_limit',
+  'free_paused',
 ] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
 export const SKIP_REASON_LABELS: Record<SkipReason, string> = {
@@ -134,6 +136,8 @@ export const SKIP_REASON_LABELS: Record<SkipReason, string> = {
   too_large: 'Too large to review',
   no_reviewable_files: 'No reviewable files',
   disabled: 'Reviews disabled for this repo',
+  free_limit: 'Free reviews used up this month',
+  free_paused: 'Free reviews paused this month',
 };
 
 export const REVIEW_TRIGGERS = ['auto', 'manual'] as const;

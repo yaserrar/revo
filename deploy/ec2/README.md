@@ -89,6 +89,47 @@ Use production-only values: new `AUTH_SECRET` and `TOKEN_ENCRYPTION_KEY`
 (`openssl rand -base64 32`), and a separate `ANTHROPIC_API_KEY` with a monthly spend limit set in
 console.anthropic.com.
 
+`TOKEN_ENCRYPTION_KEY` must be the same for `web` and `worker` (both read it from this `.env`):
+the web app encrypts the accounts' own Anthropic keys with it, and the worker decrypts them to run
+their reviews. Changing it later makes every saved key unreadable (those accounts must save their
+key again). Without it, both derive the key from `AUTH_SECRET`, so the worker gets that too; it
+never gets `GITHUB_CLIENT_SECRET`.
+
+### AI access and the free tier
+
+Each GitHub account (user or organisation that installed the App) chooses who pays for Claude:
+
+- **Free tier** (default): your `ANTHROPIC_API_KEY`, limited to `FREE_REVIEWS_PER_MONTH` reviews
+  per account per calendar month (UTC, default 20; a "Review again" counts) and to Haiku and Sonnet
+  (a repo set to Opus runs on Sonnet, and the comment says so). `FREE_MONTHLY_CAP_USD` (default 50)
+  caps your total free-tier spend per month across every account: once reached, free accounts get a
+  neutral "paused until next month" check.
+- **Own key**: the account saves its Anthropic API key in Revo (**Repos → AI access**, stored
+  encrypted). The web app checks it once with Anthropic (`models.list`, no tokens spent) before
+  saving, so the web container needs outbound HTTPS to `api.anthropic.com`. Every model, no Revo
+  limits; each repo's own monthly budget still applies. Only a user with the **Admin** role on at
+  least one of the account's repos can add, replace or remove the key, or change who pays; the key
+  is never shown again, only its last 4 characters.
+- **Owner accounts**: `REVO_OWNER_ACCOUNTS=yourlogin,your-org` use your key with no free-tier
+  limits (your own repos).
+- **Claude subscription**: only with `REVO_ALLOW_CLAUDE_SUBSCRIPTION=1` on a self-hosted, single
+  owner machine logged in to Claude Code. Leave it empty on this server. The worker then runs
+  Claude Code through the Agent SDK, which is not in the Docker image: run the worker from source
+  on that machine (`pnpm dev`, or `pnpm --filter @revo/worker build && … start`). Try the login first
+  with `pnpm review:local --diff change.patch --engine claude-subscription`.
+
+Set `CONTACT_EMAIL` in `.env` to show a contact address on `/privacy` and `/terms` (both public,
+last updated 2026-11-22). Empty, they point to the GitHub issues of the source repository. Read
+both pages once and adjust them if your hosting or analytics differ (they name AWS and PostHog).
+
+### Let other people install the App
+
+A new GitHub App can only be installed on the account that owns it. To offer Revo to everyone:
+GitHub → **Settings** → **Developer settings** → **GitHub Apps** → the App → **Advanced** →
+**Make public**. The landing page's **Install on GitHub** button (from `GITHUB_APP_SLUG`) then works
+for any account, and new accounts start on the free tier. Put your own logins in
+`REVO_OWNER_ACCOUNTS` first, so your repos are not counted against the free tier.
+
 ## 6. GitHub repository
 
 1. **Deploy key**, on your laptop:
@@ -113,7 +154,8 @@ console.anthropic.com.
 
 1. Open `https://revo.asrar.software` and sign in with GitHub.
 2. **Install App** → pick the repositories to review. Then set the model, threshold and monthly
-   budget in each repo's settings.
+   budget in each repo's settings, and check **Repos → AI access** (free tier, own key, or owner
+   account).
 3. If the same repos also have a development App installed, uninstall it there (or stop the local
    worker): both would review every push.
 4. Push a commit to an open pull request: the "Revo" check and the summary comment appear within a

@@ -9,6 +9,8 @@ export const DEMO_INSTALLATION = {
   githubId: 41_000_001,
   accountLogin: 'northwind-labs',
   accountType: 'Organization' as const,
+  /** installation.account.id (the mock GitHub uses the same). */
+  accountGithubId: 71_000_001,
 };
 
 export const DEMO_REPOS = [

@@ -15,6 +15,7 @@ import type {
   Severity,
   SkipReason,
 } from './constants';
+import type { AiSource } from './ai-access';
 import type { RepoSettings } from './schemas/settings';
 
 export type UserDto = {
@@ -116,6 +117,8 @@ export type ReviewDto = {
   skippedFiles: string[];
   notes: string[];
   error: string | null;
+  /** What paid for this run: Revo's free tier, the account's own key, or the Claude subscription. Null on rows saved before the field (those count as Revo's) and on runs that have not started. */
+  aiSource: AiSource | null;
   createdAt: string;
   finishedAt: string | null;
 };

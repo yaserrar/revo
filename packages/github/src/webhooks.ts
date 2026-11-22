@@ -20,6 +20,8 @@ export function createWebhookVerifier(secret: string) {
 // ── Payloads (only the fields Revo reads) ───────────────────────────────────
 
 const AccountSchema = z.object({
+  /** The account's own id: unlike the installation id, it survives an uninstall and reinstall. */
+  id: z.number().int().positive().optional(),
   login: z.string(),
   type: z.string(),
   avatar_url: z.string().optional().nullable(),

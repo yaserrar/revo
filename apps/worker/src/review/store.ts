@@ -1,9 +1,18 @@
-import { reviewCostEntry, type PrismaClient, type Prisma } from '@revo/db';
+import {
+  freeTierUsageEntry,
+  reviewCostEntry,
+  type FreeTierAccount,
+  type PrismaClient,
+  type Prisma,
+} from '@revo/db';
 import type { PullRequestInfo } from '@revo/github';
 import type { ReviewedFinding, ReviewOutcome } from '@revo/review';
-import type { ReviewTrigger, SkipReason } from '@revo/shared';
+import type { AiSource, ReviewTrigger, SkipReason } from '@revo/shared';
 
 type DoneOutcome = Extract<ReviewOutcome, { status: 'done' }>;
+
+/** The GitHub account a run bills (its Revo-paid spend goes to the free-tier ledger). */
+export type BilledAccount = Omit<FreeTierAccount, 'id'>;
 
 /** Repo, installation and settings of a job, or null when the app was uninstalled since. */
 export function loadRepo(prisma: PrismaClient, repoGithubId: number) {
@@ -96,13 +105,24 @@ export async function lastReviewedSha(
   return last?.headSha ?? null;
 }
 
-export function markRunning(prisma: PrismaClient, reviewId: string, trigger: ReviewTrigger, model: string) {
+/**
+ * The run starts: `aiSource` is what pays for it (Revo's key, the account's key, the subscription).
+ * A free run counts toward the account's free reviews from here (see `accountFreeReviewsUsed`).
+ */
+export function markRunning(
+  prisma: Pick<PrismaClient, 'review'>,
+  reviewId: string,
+  trigger: ReviewTrigger,
+  model: string,
+  aiSource: AiSource,
+) {
   return prisma.review.update({
     where: { id: reviewId },
     data: {
       status: 'running',
       trigger,
       model,
+      aiSource,
       startedAt: new Date(),
       finishedAt: null,
       error: null,
@@ -115,6 +135,7 @@ export function setCheckRunId(prisma: PrismaClient, reviewId: string, checkRunId
   return prisma.review.update({ where: { id: reviewId }, data: { checkRunId: BigInt(checkRunId) } });
 }
 
+/** Nothing was billed for a skipped run: `aiSource` goes back to null (an earlier run's payer is gone). */
 export function markSkipped(
   prisma: PrismaClient,
   reviewId: string,
@@ -126,6 +147,7 @@ export function markSkipped(
     data: {
       status: 'skipped',
       skipReason: reason,
+      aiSource: null,
       error: null,
       filesReviewed: 0,
       ...extra,
@@ -167,12 +189,21 @@ function spentIncrements(spent: SpentUsage) {
 /**
  * A failed attempt: back to queued (BullMQ retries) or failed on the last one.
  * What the attempt already billed is added to the review and to the dated
- * cost ledger, so the monthly budget sees it.
+ * cost ledger, so the monthly budget sees it (and the free-tier ledger, when
+ * Revo's key paid).
  */
 export async function markAttemptFailed(
   prisma: PrismaClient,
   reviewId: string,
-  input: { repoId: string; final: boolean; error: string; spent: SpentUsage | null },
+  input: {
+    repoId: string;
+    account: BilledAccount;
+    final: boolean;
+    error: string;
+    spent: SpentUsage | null;
+    /** What paid for the attempt (unknown when it failed before choosing). */
+    aiSource?: AiSource;
+  },
 ) {
   const spent = input.spent;
   await prisma.$transaction([
@@ -186,7 +217,19 @@ export async function markAttemptFailed(
       },
     }),
     prisma.reviewCost.createMany({
-      data: spent ? reviewCostEntry({ repoId: input.repoId, reviewId, costUsd: spent.costUsd }) : [],
+      data: spent
+        ? reviewCostEntry({
+            repoId: input.repoId,
+            reviewId,
+            costUsd: spent.costUsd,
+            ...(input.aiSource ? { aiSource: input.aiSource } : {}),
+          })
+        : [],
+    }),
+    prisma.freeTierUsage.createMany({
+      data: spent
+        ? freeTierUsageEntry({ account: input.account, aiSource: input.aiSource, costUsd: spent.costUsd })
+        : [],
     }),
   ]);
 }
@@ -235,10 +278,12 @@ export async function saveDone(
   input: {
     reviewId: string;
     repoId: string;
+    account: BilledAccount;
     pullRequestId: string;
     outcome: DoneOutcome;
     posted: PostedFindings;
     summaryCommentId: number | null;
+    aiSource: AiSource;
   },
 ) {
   const { outcome } = input;
@@ -267,6 +312,7 @@ export async function saveDone(
         filesSkipped: outcome.filesSkipped,
         skippedFiles: outcome.skippedFiles.map((f) => f.path),
         notes: outcome.notes,
+        aiSource: input.aiSource,
         finishedAt: now,
       },
     }),
@@ -274,6 +320,15 @@ export async function saveDone(
       data: reviewCostEntry({
         repoId: input.repoId,
         reviewId: input.reviewId,
+        costUsd: outcome.usage.costUsd,
+        spentAt: now,
+        aiSource: input.aiSource,
+      }),
+    }),
+    prisma.freeTierUsage.createMany({
+      data: freeTierUsageEntry({
+        account: input.account,
+        aiSource: input.aiSource,
         costUsd: outcome.usage.costUsd,
         spentAt: now,
       }),

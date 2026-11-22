@@ -5,7 +5,8 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./secret-box": "./src/secret-box.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

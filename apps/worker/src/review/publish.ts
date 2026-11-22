@@ -34,6 +34,8 @@ export type SummaryContext = {
   repoFullName: string;
   dashboardUrl: string;
   settingsUrl: string;
+  /** Who paid, after the model in the footer (the free tier's usage). */
+  paidBy?: string | null;
 };
 
 /** Shown instead of a model name when the deterministic offline engine ran (tests, demos). */
@@ -65,6 +67,7 @@ export function summaryInput(outcome: DoneOutcome, ctx: SummaryContext): Summary
     changedLines: ctx.files.reduce((sum, f) => sum + f.additions + f.deletions, 0),
     notes: outcome.notes,
     modelName: outcome.engine === 'fake' ? FAKE_ENGINE_NAME : modelName(outcome.model),
+    paidBy: ctx.paidBy ?? null,
     trigger: ctx.trigger,
     durationMs: outcome.durationMs,
     // Same "tokens in" as the dashboard's run details: fresh input plus cache writes and reads.

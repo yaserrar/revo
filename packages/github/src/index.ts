@@ -38,6 +38,7 @@ export {
   supersededCheck,
   updateCheckRun,
   type CheckPresentation,
+  type SkipDetail,
 } from './checks';
 export {
   createInlineReview,

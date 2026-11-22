@@ -39,6 +39,10 @@ enum SkipReason {
   too_large
   no_reviewable_files
   disabled
+  /// The account used its free reviews this month.
+  free_limit
+  /// Revo's free-tier spend reached FREE_MONTHLY_CAP_USD this month.
+  free_paused
 }
 
 enum ReviewTrigger {
@@ -61,6 +65,20 @@ enum Severity {
 enum FeedbackOutcome {
   useful
   wrong
+}
+
+/// Who pays for Claude for an account (values of AI_ACCESS in @revo/shared).
+enum AiAccess {
+  free
+  own_key
+  subscription
+}
+
+/// What paid for one review run: Revo's key, the account's key, or the local Claude subscription.
+enum AiSource {
+  revo
+  account
+  subscription
 }
 
 /// A user's role on a GitHub repo (from the `permissions` GitHub returns), lowest first.
@@ -113,16 +131,30 @@ model RepoAccess {
 // ── GitHub App ──────────────────────────────────────────────────────────────
 
 model Installation {
-  id               String      @id @default(cuid())
-  githubId         BigInt      @unique
-  accountLogin     String
-  accountType      AccountType
-  accountAvatarUrl String?
-  suspendedAt      DateTime?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  id                String      @id @default(cuid())
+  githubId          BigInt      @unique
+  accountLogin      String
+  accountType       AccountType
+  accountAvatarUrl  String?
+  suspendedAt       DateTime?
+  /// Who pays for Claude for this account (free tier by default).
+  aiAccess          AiAccess    @default(free)
+  /// The account's Anthropic API key, AES-256-GCM encrypted (@revo/shared/secret-box).
+  anthropicKeyEnc   String?
+  /// Last 4 characters of that key, for display only.
+  anthropicKeyHint  String?
+  aiAccessUpdatedAt DateTime?
+  /// User id of the person who last changed the AI access.
+  aiAccessUpdatedBy String?
+  /// The GitHub account's own id (installation.account.id): stays the same when the App is
+  /// uninstalled and installed again, so the free-tier count follows the account.
+  accountGithubId   BigInt?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   repos Repo[]
+
+  @@index([accountGithubId])
 }
 
 model Repo {
@@ -229,6 +261,8 @@ model Review {
   /// Notes shown in the comment and dashboard, e.g. "Large PR: reviewed 18 of 52 files."
   notes            String[]      @default([])
   error            String?
+  /// What paid for the latest run (null on older rows = revo).
+  aiSource         AiSource?
   checkRunId       BigInt?
   startedAt        DateTime?
   finishedAt       DateTime?
@@ -302,11 +336,13 @@ model Feedback {
 /// Monthly budgets and cost charts sum these by `spentAt`, so a re-run of an
 /// older commit counts in the month it ran. Review.costUsd stays the per-review total.
 model ReviewCost {
-  id       String   @id @default(cuid())
+  id       String    @id @default(cuid())
   repoId   String
   reviewId String?
-  costUsd  Decimal  @db.Decimal(10, 6)
-  spentAt  DateTime @default(now())
+  costUsd  Decimal   @db.Decimal(10, 6)
+  spentAt  DateTime  @default(now())
+  /// What paid (null on older rows = revo). The free tier counts only Revo's spend.
+  aiSource AiSource?
 
   repo   Repo    @relation(fields: [repoId], references: [id], onDelete: Cascade)
   review Review? @relation(fields: [reviewId], references: [id], onDelete: SetNull)
@@ -314,6 +350,24 @@ model ReviewCost {
   @@index([repoId, spentAt])
   @@index([spentAt])
   @@index([reviewId])
+}
+
+/// Free-tier usage: one row per run billed to Revo's own key, keyed by the GitHub
+/// account, not by Installation or Repo. No foreign keys on purpose: uninstalling
+/// the App, removing a repo or moving it to another account must not erase what an
+/// account used this month, nor take that spend out of the global cap
+/// (FREE_MONTHLY_CAP_USD). Billing counters only: no code, no review content.
+model FreeTierUsage {
+  id              String   @id @default(cuid())
+  /// installation.account.id (null when the installation was saved before it was known).
+  accountGithubId BigInt?
+  accountLogin    String
+  costUsd         Decimal  @db.Decimal(10, 6)
+  spentAt         DateTime @default(now())
+
+  @@index([accountGithubId, spentAt])
+  @@index([accountLogin, spentAt])
+  @@index([spentAt])
 }
 
 // ── Operations ──────────────────────────────────────────────────────────────

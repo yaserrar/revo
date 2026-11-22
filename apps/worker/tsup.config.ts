@@ -11,4 +11,8 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   noExternal: [/^@revo\//],
+  // The Claude subscription engine loads the Agent SDK (and its Claude Code
+  // binary) on first use, from node_modules: never bundled, and not in the
+  // image (a subscription login lives on the owner's own machine).
+  external: ['@anthropic-ai/claude-agent-sdk'],
 });

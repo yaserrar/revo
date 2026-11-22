@@ -1,5 +1,5 @@
 import { UnrecoverableError } from 'bullmq';
-import { repoMonthSpendUsd, type PrismaClient } from '@revo/db';
+import { lockFreeTierAccount, repoMonthSpendUsd, type PrismaClient } from '@revo/db';
 import {
   closedCheck,
   compareCommits,
@@ -28,10 +28,12 @@ import {
   DEFAULT_REPO_SETTINGS,
   globError,
   ModelIdSchema,
+  type AiSource,
   type ReviewJobPayload,
   type SkipReason,
 } from '@revo/shared';
 import type { Logger } from '../logger';
+import { chooseEngine, type AiAccessConfig } from './ai-access';
 import { describeFailure } from './failure';
 import { codeSearcher, fetchChangedFiles, headFileReader } from './fetch';
 import { postInlineComments, renderResult, summaryInput } from './publish';
@@ -55,7 +57,14 @@ import {
 export type ReviewDeps = {
   prisma: PrismaClient;
   github: GithubApp;
+  /** Revo's own engine (REVO_ENGINE): the free tier and owner accounts. */
   engine: ReviewEngine;
+  /** An engine for an account's own Anthropic API key (REVO_ENGINE=fake: the fake engine). */
+  accountEngine: (apiKey: string) => ReviewEngine;
+  /** The Claude subscription logged in on this machine; absent = such accounts use the free tier. */
+  subscriptionEngine?: () => ReviewEngine;
+  /** Free tier, owner accounts, subscription switch, saved-key decryption. */
+  ai: AiAccessConfig;
   log: Logger;
   /** Dashboard base URL, for links in the comment and the check. */
   appUrl: string;
@@ -131,6 +140,10 @@ export async function runReviewJob(
   let row: Row | null = null;
   // Money billed by the engine in this attempt: counted even when a later GitHub call fails.
   let spent: SpentUsage | null = null;
+  // What pays for this attempt, the model it runs, and whose own key it uses (for a refused key).
+  let aiSource: AiSource | undefined;
+  let runModel: string = settings.model;
+  let accountKeyOf: string | undefined;
 
   const prUrl = (id: string) => `${deps.appUrl.replace(/\/$/, '')}/prs/${id}`;
   const check = async (target: Row, presentation: CheckPresentation) => {
@@ -211,10 +224,34 @@ export async function runReviewJob(
       return { outcome: 'skipped', reviewId: review.id, reason };
     }
 
+    // Who pays: the account's key, the local subscription, or Revo's key within the free tier
+    // (a manual "Review again" counts and is refused the same way). The free-tier count and the
+    // `running` mark that reserves the run happen under one per-account lock, so parallel jobs of
+    // one account cannot both take its last free review.
     const before = { id: review.id, status: review.status, score: review.score };
+    const choice = await prisma.$transaction(async (tx) => {
+      await lockFreeTierAccount(tx, repo.installation.id);
+      const decided = await chooseEngine(
+        repo.installation,
+        settings.model,
+        { ...deps, prisma: tx },
+        { reviewId: review.id },
+      );
+      if (decided.kind === 'run')
+        await markRunning(tx, review.id, payload.trigger, decided.model, decided.aiSource);
+      return decided;
+    });
+    if (choice.kind === 'skip') {
+      await markSkipped(prisma, review.id, choice.reason);
+      await check(review, skippedCheck(choice.reason, choice.detail));
+      log.info({ repo: repo.fullName, pr: live.number, reason: choice.reason }, 'review skipped');
+      return { outcome: 'skipped', reviewId: review.id, reason: choice.reason };
+    }
+    aiSource = choice.aiSource;
+    runModel = choice.model;
+    if (choice.aiSource === 'account') accountKeyOf = repo.installation.accountLogin;
     // A finished review's check is completed and cannot go back to in progress: a re-run gets a new one.
-    if (review.status !== 'queued' && review.status !== 'running') review.checkRunId = null;
-    await markRunning(prisma, review.id, payload.trigger, settings.model);
+    if (before.status !== 'queued' && before.status !== 'running') review.checkRunId = null;
     await check(review, reviewingCheck());
 
     // What the pushes since the last review changed: reviewed first, with their own diff.
@@ -240,12 +277,14 @@ export async function runReviewJob(
       pr: { title: live.title, body: live.body },
       files,
       related: [],
-      settings,
-      engine: deps.engine,
+      settings: { ...settings, model: choice.model },
+      engine: choice.engine,
       readFile: headFileReader(octokit, ref, live.headSha),
       searchUsages: codeSearcher(octokit, ref),
     });
     if (outcome.status === 'done') spent = spentFrom(outcome.usage);
+    // Why the model differs from the repo's choice comes first in the notes.
+    outcome.notes = [...choice.notes, ...outcome.notes];
 
     if (outcome.status === 'skipped') {
       await markSkipped(prisma, review.id, outcome.skipReason, {
@@ -274,6 +313,7 @@ export async function runReviewJob(
         repoFullName: repo.fullName,
         dashboardUrl: prUrl(pr.id),
         settingsUrl: `${deps.appUrl.replace(/\/$/, '')}/repos/${repo.id}/settings`,
+        paidBy: choice.paidBy,
       }),
     );
     const summaryCommentId = await upsertSummaryComment(
@@ -297,10 +337,12 @@ export async function runReviewJob(
     await saveDone(prisma, {
       reviewId: review.id,
       repoId: repo.id,
+      account: repo.installation,
       pullRequestId: pr.id,
       outcome,
       posted,
       summaryCommentId,
+      aiSource: choice.aiSource,
     });
     spent = null;
     log.info(
@@ -313,13 +355,17 @@ export async function runReviewJob(
         rejected: outcome.rejected.length,
         inline: posted.size,
         costUsd: outcome.usage.costUsd,
+        aiSource: choice.aiSource,
         durationMs: outcome.durationMs,
       },
       'review done',
     );
     return { outcome: 'done', reviewId: review.id, score: outcome.score, passed: outcome.passed };
   } catch (err) {
-    const failure = describeFailure(err, settings.model);
+    const failure = describeFailure(err, runModel, {
+      ...(accountKeyOf ? { accountKeyOf } : {}),
+      subscription: aiSource === 'subscription',
+    });
     const final = !failure.retryable || attempt.attemptsMade + 1 >= attempt.attempts;
     log.error(
       {
@@ -336,9 +382,11 @@ export async function runReviewJob(
     if (failedRow) {
       await markAttemptFailed(prisma, failedRow.id, {
         repoId: repo.id,
+        account: repo.installation,
         final,
         error: failure.message,
         spent: failure.spent ?? spent,
+        ...(aiSource ? { aiSource } : {}),
       });
       if (final) {
         octokit ??= await deps.github.installation(Number(repo.installation.githubId)).catch(() => null);

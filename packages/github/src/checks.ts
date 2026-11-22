@@ -1,7 +1,10 @@
 import {
   CHECK_RUN_NAME,
+  FREE_PAUSED_TEXT,
+  freeLimitText,
   SCORE_LABEL_TEXT,
   SKIP_REASON_LABELS,
+  startOfNextUtcMonth,
   type ScoreLabel,
   type SkipReason,
 } from '@revo/shared';
@@ -51,15 +54,24 @@ const SKIP_SUMMARIES: Record<SkipReason, string> = {
   no_reviewable_files:
     'Every changed file is ignored (lockfiles, generated code, binaries or the ignore patterns in the repo settings).',
   disabled: 'Reviews are turned off for this repo in the Revo dashboard.',
+  free_limit:
+    'Free reviews for this account are used up until next month. Add your own Anthropic API key in Revo for unlimited reviews.',
+  free_paused: FREE_PAUSED_TEXT,
 };
 
+/** What a skip summary can name: the account (free reviews used up) and when the free tier resets. */
+export type SkipDetail = { accountLogin?: string; resetsAt?: Date };
+
 /** Neutral check for a skipped review ("Monthly budget reached", …). */
-export function skippedCheck(reason: SkipReason): CheckPresentation {
+export function skippedCheck(reason: SkipReason, detail: SkipDetail = {}): CheckPresentation {
   return {
     status: 'completed',
     conclusion: 'neutral',
     title: SKIP_REASON_LABELS[reason],
-    summary: SKIP_SUMMARIES[reason],
+    summary:
+      reason === 'free_limit' && detail.accountLogin
+        ? freeLimitText(detail.accountLogin, detail.resetsAt ?? startOfNextUtcMonth())
+        : SKIP_SUMMARIES[reason],
   };
 }
 

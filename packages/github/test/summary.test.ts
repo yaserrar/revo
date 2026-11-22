@@ -246,6 +246,13 @@ describe('renderSummaryComment (spec 10)', () => {
     );
   });
 
+  it('says who paid after the model', () => {
+    const md = renderSummaryComment({ ...base, paidBy: "on Revo's free tier (3 of 20 reviews this month)" });
+    expect(md.split('\n').at(-1)).toMatch(
+      /^Claude Sonnet 5\.5 on Revo's free tier \(3 of 20 reviews this month\) · 41 s · /,
+    );
+  });
+
   it('sanitizes model text everywhere, including inside <summary>', () => {
     const md = renderSummaryComment({
       ...base,
@@ -360,6 +367,16 @@ describe('check presentations (spec 7.8)', () => {
 
   it('uses neutral for skips and failures', () => {
     expect(skippedCheck('budget')).toMatchObject({ conclusion: 'neutral', title: 'Monthly budget reached' });
+    expect(
+      skippedCheck('free_limit', { accountLogin: 'acme', resetsAt: new Date('2026-12-01T00:00:00Z') }),
+    ).toMatchObject({
+      conclusion: 'neutral',
+      summary:
+        'Free reviews for acme are used up until December 1, 2026. Add your own Anthropic API key in Revo for unlimited reviews.',
+    });
+    expect(skippedCheck('free_paused').summary).toBe(
+      "Revo's free reviews are paused until next month. Add your own Anthropic API key in Revo to keep reviewing.",
+    );
     expect(failedCheck()).toMatchObject({ conclusion: 'neutral', title: "Revo couldn't review this PR" });
   });
 });

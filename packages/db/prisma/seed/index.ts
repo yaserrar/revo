@@ -9,6 +9,7 @@
 import { computeScore, callCostUsd } from '@revo/review';
 import { DEFAULT_REPO_SETTINGS, type ModelId, type PrState, type Severity } from '@revo/shared';
 import { createPrismaClient } from '../../src/client';
+import { freeTierUsageEntry } from '../../src/free-tier';
 import type { Prisma } from '../../src/generated/prisma/client';
 import {
   DEMO_ACCESS,
@@ -146,6 +147,8 @@ async function wipe() {
     prisma.installation.deleteMany(),
     prisma.user.deleteMany(),
     prisma.webhookDelivery.deleteMany(),
+    // The free-tier ledger outlives uninstalls, so a fresh demo starts it again too.
+    prisma.freeTierUsage.deleteMany(),
   ]);
 }
 
@@ -157,6 +160,7 @@ async function main() {
       githubId: DEMO_INSTALLATION.githubId,
       accountLogin: DEMO_INSTALLATION.accountLogin,
       accountType: DEMO_INSTALLATION.accountType,
+      accountGithubId: DEMO_INSTALLATION.accountGithubId,
       createdAt: new Date(now - 45 * DAY),
     },
   });
@@ -364,13 +368,18 @@ async function main() {
           },
           include: { findings: true },
         });
+        const spentAt = new Date(createdAt.getTime() + durationMs);
         await prisma.reviewCost.create({
-          data: {
-            repoId: repoIds[key],
-            reviewId: review.id,
-            costUsd: usage.costUsd.toFixed(6),
-            spentAt: new Date(createdAt.getTime() + durationMs),
-          },
+          data: { repoId: repoIds[key], reviewId: review.id, costUsd: usage.costUsd.toFixed(6), spentAt },
+        });
+        // Demo reviews ran on Revo's key: the free-tier ledger sees them too.
+        await prisma.freeTierUsage.createMany({
+          data: freeTierUsageEntry({
+            account: installation,
+            aiSource: 'revo',
+            costUsd: usage.costUsd,
+            spentAt,
+          }),
         });
         reviewCount++;
         findingCount += review.findings.length;

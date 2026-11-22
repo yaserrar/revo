@@ -26,7 +26,15 @@ export function skipReasonFor(input: GateInput): SkipReason | null {
 
 /**
  * Skip reasons that can stop applying to the same commit (a draft marked
- * ready, settings or budget changed): a new event re-evaluates them. Other
- * outcomes are final for a commit (spec 6: one review per head SHA).
+ * ready, settings or budget changed, a new month or an own API key for the
+ * free tier): a new event re-evaluates them. Other outcomes are final for a
+ * commit (spec 6: one review per head SHA).
  */
-export const REEVALUATED_SKIP_REASONS: readonly SkipReason[] = ['draft', 'bot', 'budget', 'disabled'];
+export const REEVALUATED_SKIP_REASONS: readonly SkipReason[] = [
+  'draft',
+  'bot',
+  'budget',
+  'disabled',
+  'free_limit',
+  'free_paused',
+];

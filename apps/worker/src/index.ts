@@ -5,14 +5,15 @@
  * SIGINT/SIGTERM stop taking jobs, let the running ones finish, and close
  * every connection.
  */
-import { createPrismaClient, pruneWebhookDeliveries } from '@revo/db';
+import { createPrismaClient, pruneFreeTierUsage, pruneWebhookDeliveries } from '@revo/db';
 import { createGithubApp } from '@revo/github';
 import { REVIEW_QUEUE } from '@revo/shared';
-import { createEngine } from './engines';
+import { createAccountEngines, createEngine, createSubscriptionEngine } from './engines';
 import { githubConfig, loadEnv } from './env';
 import { startHeartbeat } from './heartbeat';
 import { createLogger } from './logger';
 import { bullConnection } from './redis';
+import { aiAccessConfig } from './review/ai-access';
 import { createReviewWorker } from './worker';
 
 const PRUNE_EVERY_MS = 6 * 3600_000;
@@ -24,11 +25,25 @@ async function main() {
   await prisma.$queryRaw`SELECT 1`;
 
   const github = githubConfig(env);
+  const ai = aiAccessConfig(env);
+  if (!ai.secrets)
+    log.warn(
+      'TOKEN_ENCRYPTION_KEY and AUTH_SECRET are unset: reviews of accounts with their own API key will fail',
+    );
+  if (env.REVO_ALLOW_CLAUDE_SUBSCRIPTION)
+    log.info(
+      'REVO_ALLOW_CLAUDE_SUBSCRIPTION is on: accounts set to the Claude subscription run through Claude Code on this machine (sign in with `claude`, then /login)',
+    );
   const worker = createReviewWorker(
     {
       prisma,
       github: createGithubApp(github),
       engine: createEngine(env, log),
+      accountEngine: createAccountEngines(env, log),
+      ...(env.REVO_ALLOW_CLAUDE_SUBSCRIPTION
+        ? { subscriptionEngine: createSubscriptionEngine(env, log) }
+        : {}),
+      ai,
       log,
       appUrl: env.APP_URL,
     },
@@ -48,6 +63,10 @@ async function main() {
       prefix: env.REVO_QUEUE_PREFIX,
       concurrency: env.WORKER_CONCURRENCY,
       githubApi: github.apiUrl,
+      freeReviewsPerMonth: ai.freeReviewsPerMonth,
+      freeMonthlyCapUsd: ai.freeMonthlyCapUsd,
+      ownerAccounts: ai.ownerAccounts.length,
+      subscription: ai.allowSubscription,
     },
     'worker ready',
   );
@@ -58,13 +77,21 @@ async function main() {
     return true;
   });
 
-  // Retention (spec 14): the webhook log keeps 30 days. Several workers pruning at once is harmless.
+  // Retention (spec 14): the webhook log keeps 30 days, the free-tier ledger this month and the last.
+  // Several workers pruning at once is harmless.
   const prune = () =>
-    pruneWebhookDeliveries(prisma)
-      .then((count) => count > 0 && log.info({ count }, 'old webhook deliveries pruned'))
-      .catch((err: unknown) =>
-        log.warn({ err: err instanceof Error ? err.message : String(err) }, 'webhook prune failed'),
-      );
+    Promise.all([
+      pruneWebhookDeliveries(prisma)
+        .then((count) => count > 0 && log.info({ count }, 'old webhook deliveries pruned'))
+        .catch((err: unknown) =>
+          log.warn({ err: err instanceof Error ? err.message : String(err) }, 'webhook prune failed'),
+        ),
+      pruneFreeTierUsage(prisma)
+        .then((count) => count > 0 && log.info({ count }, 'old free-tier usage pruned'))
+        .catch((err: unknown) =>
+          log.warn({ err: err instanceof Error ? err.message : String(err) }, 'free-tier prune failed'),
+        ),
+    ]);
   void prune();
   const pruneTimer = setInterval(() => void prune(), PRUNE_EVERY_MS);
   pruneTimer.unref();

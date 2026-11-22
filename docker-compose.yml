@@ -141,9 +141,9 @@ services:
       <<: *app-env
       # Real reviews only: the worker refuses the fake engine in production.
       REVO_ENGINE: claude
-      # Least privilege: the worker never signs users in.
-      AUTH_SECRET: ''
-      TOKEN_ENCRYPTION_KEY: ''
+      # Least privilege: the worker never signs users in (no OAuth client secret). It keeps
+      # TOKEN_ENCRYPTION_KEY (and AUTH_SECRET, the key's source when TOKEN_ENCRYPTION_KEY is
+      # unset) from .env to read the accounts' saved Anthropic keys: same values as web.
       GITHUB_CLIENT_SECRET: ''
     depends_on:
       migrate: { condition: service_completed_successfully }

@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { GithubAppConfigSchema } from '@revo/github';
-import { DEFAULT_REVIEW_DEBOUNCE_SECONDS, ENGINE_KINDS, QUEUE_PREFIX } from '@revo/shared';
+import {
+  DEFAULT_FREE_MONTHLY_CAP_USD,
+  DEFAULT_FREE_REVIEWS_PER_MONTH,
+  DEFAULT_REVIEW_DEBOUNCE_SECONDS,
+  ENGINE_KINDS,
+  parseOwnerAccounts,
+  QUEUE_PREFIX,
+} from '@revo/shared';
 
 const optional = z
   .string()
@@ -11,6 +18,10 @@ const flag = z
   .string()
   .optional()
   .transform((v) => v === '1' || v === 'true');
+
+/** A number, or the default when unset or blank (compose passes '' for unset values). */
+const numberOr = (fallback: number) =>
+  optional.transform((v) => (v === undefined ? fallback : Number(v))).pipe(z.number().min(0));
 
 export const WorkerEnvSchema = z
   .object({
@@ -31,6 +42,21 @@ export const WorkerEnvSchema = z
     ANTHROPIC_API_KEY: optional,
     REVIEW_DEBOUNCE_SECONDS: z.coerce.number().int().min(0).default(DEFAULT_REVIEW_DEBOUNCE_SECONDS),
     WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+    /**
+     * Reads the accounts' Anthropic API keys saved by the web app: must be the
+     * same TOKEN_ENCRYPTION_KEY as the web app (or the same AUTH_SECRET, which
+     * the key is derived from when TOKEN_ENCRYPTION_KEY is not set).
+     */
+    TOKEN_ENCRYPTION_KEY: optional,
+    AUTH_SECRET: optional,
+    /** Free tier: reviews per account per UTC month on Revo's key. */
+    FREE_REVIEWS_PER_MONTH: numberOr(DEFAULT_FREE_REVIEWS_PER_MONTH).pipe(z.number().int()),
+    /** Free tier: Revo's total free-tier spend per UTC month across every account, in USD. */
+    FREE_MONTHLY_CAP_USD: numberOr(DEFAULT_FREE_MONTHLY_CAP_USD),
+    /** Comma-separated GitHub logins that use Revo's key with no free-tier limits (lowercased list). */
+    REVO_OWNER_ACCOUNTS: optional.transform(parseOwnerAccounts),
+    /** Self-hosted, single owner: accounts may use the Claude subscription logged in on this machine. */
+    REVO_ALLOW_CLAUDE_SUBSCRIPTION: flag,
   })
   .transform((env) => ({
     ...env,

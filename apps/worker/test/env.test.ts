@@ -25,6 +25,34 @@ describe('loadEnv', () => {
     });
   });
 
+  it('reads the free tier, owner accounts and subscription switch, blanks as defaults', () => {
+    expect(loadEnv(base)).toMatchObject({
+      FREE_REVIEWS_PER_MONTH: 20,
+      FREE_MONTHLY_CAP_USD: 50,
+      REVO_OWNER_ACCOUNTS: [],
+      REVO_ALLOW_CLAUDE_SUBSCRIPTION: false,
+    });
+    expect(
+      loadEnv({ ...base, FREE_REVIEWS_PER_MONTH: '', FREE_MONTHLY_CAP_USD: ' ', REVO_OWNER_ACCOUNTS: '' }),
+    ).toMatchObject({ FREE_REVIEWS_PER_MONTH: 20, FREE_MONTHLY_CAP_USD: 50, REVO_OWNER_ACCOUNTS: [] });
+    expect(
+      loadEnv({
+        ...base,
+        FREE_REVIEWS_PER_MONTH: '5',
+        FREE_MONTHLY_CAP_USD: '12.5',
+        REVO_OWNER_ACCOUNTS: 'YaSerrar, acme',
+        REVO_ALLOW_CLAUDE_SUBSCRIPTION: '1',
+      }),
+    ).toMatchObject({
+      FREE_REVIEWS_PER_MONTH: 5,
+      FREE_MONTHLY_CAP_USD: 12.5,
+      REVO_OWNER_ACCOUNTS: ['yaserrar', 'acme'],
+      REVO_ALLOW_CLAUDE_SUBSCRIPTION: true,
+    });
+    expect(() => loadEnv({ ...base, FREE_REVIEWS_PER_MONTH: 'many' })).toThrow(/FREE_REVIEWS_PER_MONTH/);
+    expect(() => loadEnv({ ...base, FREE_REVIEWS_PER_MONTH: '1.5' })).toThrow(/FREE_REVIEWS_PER_MONTH/);
+  });
+
   it('treats an empty queue prefix as the default', () => {
     expect(loadEnv({ ...base, REVO_QUEUE_PREFIX: '' }).REVO_QUEUE_PREFIX).toBe('revo');
   });

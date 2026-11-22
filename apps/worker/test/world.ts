@@ -12,7 +12,12 @@ import {
 } from '@revo/mock-github';
 import { fakeEngine, type ReviewEngine } from '@revo/review';
 import type { ReviewJobPayload } from '@revo/shared';
+import { createSecretBox } from '@revo/shared/secret-box';
+import type { AiAccessConfig } from '../src/review/ai-access';
 import type { ReviewDeps } from '../src/review/job';
+
+/** Encrypts like the web app does in these tests (same key material as `ai.secrets`). */
+export const testSecrets = createSecretBox({ encryptionKey: 'worker-test-encryption-key-0123456789' });
 
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
@@ -40,7 +45,12 @@ export async function createWorld() {
     'src/lib/money.ts': 'export const roundCents = (v: number) => Math.round(v * 100) / 100;\n',
   });
   const installation = await prisma.installation.create({
-    data: { githubId: BigInt(installationGithubId), accountLogin: login, accountType: 'Organization' },
+    data: {
+      githubId: BigInt(installationGithubId),
+      accountLogin: login,
+      accountType: 'Organization',
+      accountGithubId: BigInt(installationGithubId),
+    },
   });
   const repo = await prisma.repo.create({
     data: {
@@ -59,12 +69,24 @@ export async function createWorld() {
   const github = createGithubApp({ appId: MOCK_APP_ID, privateKey, apiUrl });
   const log = pino({ level: 'silent' });
 
-  const deps = (engine: ReviewEngine = fakeEngine): ReviewDeps => ({
+  // A regular account on the free tier, with room for every review of a test file.
+  const ai: AiAccessConfig = {
+    freeReviewsPerMonth: 1000,
+    freeMonthlyCapUsd: 1_000_000,
+    ownerAccounts: [],
+    allowSubscription: false,
+    secrets: testSecrets,
+  };
+  const deps = (engine: ReviewEngine = fakeEngine, extra: Partial<ReviewDeps> = {}): ReviewDeps => ({
     prisma,
     github,
     engine,
+    // Never a real Claude client in tests: an account's key gets the engine under test.
+    accountEngine: () => engine,
+    ai,
     log,
     appUrl: 'https://revo.example.com',
+    ...extra,
   });
 
   const openPull = (files: MockFileChange[], extra: Partial<Parameters<MockAppState['openPull']>[0]> = {}) =>
@@ -94,6 +116,8 @@ export async function createWorld() {
 
   const close = async () => {
     await prisma.installation.deleteMany({ where: { id: installation.id } });
+    // The free-tier ledger has no foreign keys (it outlives uninstalls): clean it by account.
+    await prisma.freeTierUsage.deleteMany({ where: { accountLogin: login } });
     await prisma.$disconnect();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   };

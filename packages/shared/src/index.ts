@@ -1,5 +1,6 @@
 export * from './constants';
 export * from './models';
+export * from './ai-access';
 export * from './jobs';
 export * from './diff';
 export * from './files';
