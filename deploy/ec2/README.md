@@ -104,7 +104,10 @@ console.anthropic.com.
    | `EC2_USER`    | `ubuntu` (or your user)                   |
    | `EC2_SSH_KEY` | contents of the private key `revo_deploy` |
 
-3. Push to `main`, or run **Deploy** from the **Actions** tab.
+3. **Optional, analytics:** in **Settings → Secrets and variables → Actions → Variables**, add
+   `NEXT_PUBLIC_POSTHOG_KEY` with your PostHog project token (public and write-only, so a variable,
+   not a secret). It is built into the web image; without it, Revo sends no analytics.
+4. Push to `main`, or run **Deploy** from the **Actions** tab.
 
 ## 7. First run
 

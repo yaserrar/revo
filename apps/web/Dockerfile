@@ -26,6 +26,12 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 FROM deps AS build
 COPY --from=prune /repo/out/full/ ./
 COPY tsconfig.base.json ./
+# Analytics (optional, public write-only key): NEXT_PUBLIC_* values are inlined at build time.
+ARG NEXT_PUBLIC_POSTHOG_KEY=""
+ARG NEXT_PUBLIC_POSTHOG_HOST=""
+ARG NEXT_PUBLIC_POSTHOG_UI_HOST=""
+ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST \
+    NEXT_PUBLIC_POSTHOG_UI_HOST=$NEXT_PUBLIC_POSTHOG_UI_HOST
 ENV NEXT_OUTPUT=standalone DATABASE_URL=postgresql://build@localhost:5432/build
 RUN pnpm --filter @revo/db db:generate && pnpm --filter @revo/web exec next build
 

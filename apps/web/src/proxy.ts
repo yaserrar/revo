@@ -26,8 +26,9 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  // Pages only: API routes authenticate themselves (route()); static files pass through.
+  // Pages only: API routes authenticate themselves (route()); static files and the
+  // analytics proxy (/ingest, rewritten to PostHog in next.config.ts) pass through.
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|robots.txt|.*\\.(?:png|jpg|svg|webp|ico|txt)$).*)',
+    '/((?!api|ingest|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|robots.txt|.*\\.(?:png|jpg|svg|webp|ico|txt)$).*)',
   ],
 };
