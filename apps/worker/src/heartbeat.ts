@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { rename, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -18,7 +18,12 @@ export function startHeartbeat(
   let stopped = false;
   const beat = async () => {
     try {
-      if ((await healthy()) && !stopped) await writeFile(file, new Date().toISOString());
+      if ((await healthy()) && !stopped) {
+        // Write then rename: a reader (the healthcheck, a test) never sees a half-written file.
+        const tmp = `${file}.tmp`;
+        await writeFile(tmp, new Date().toISOString());
+        await rename(tmp, file);
+      }
     } catch {
       // An unhealthy check simply skips the beat.
     }
