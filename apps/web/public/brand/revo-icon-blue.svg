@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>Revo</title>
+  <rect width="512" height="512" rx="144" fill="#2b3bff"/>
+  <circle cx="256" cy="256" r="144" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="48"/>
+  <path d="M256 112a144 144 0 1 1-138.56 104" fill="none" stroke="#ffffff" stroke-width="48" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="44.8" fill="#ffffff"/>
+</svg>
