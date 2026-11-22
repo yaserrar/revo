@@ -79,6 +79,23 @@ export async function previousScore(
   return last?.score ?? null;
 }
 
+/**
+ * Head commit of the PR's latest finished review of another commit: the
+ * files changed since then are reviewed first. Null on the first review.
+ */
+export async function lastReviewedSha(
+  prisma: PrismaClient,
+  pullRequestId: string,
+  headSha: string,
+): Promise<string | null> {
+  const last = await prisma.review.findFirst({
+    where: { pullRequestId, status: 'done', headSha: { not: headSha } },
+    orderBy: [{ finishedAt: 'desc' }, { createdAt: 'desc' }],
+    select: { headSha: true },
+  });
+  return last?.headSha ?? null;
+}
+
 export function markRunning(prisma: PrismaClient, reviewId: string, trigger: ReviewTrigger, model: string) {
   return prisma.review.update({
     where: { id: reviewId },

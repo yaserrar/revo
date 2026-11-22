@@ -1,7 +1,14 @@
 import { UnrecoverableError } from 'bullmq';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { findingKey, REVIEWING_TITLE } from '@revo/github';
-import { fakeEngine, ReviewEngineError, type ReviewEngine } from '@revo/review';
+import {
+  fakeEngine,
+  recentNote,
+  ReviewEngineError,
+  usageNote,
+  type EngineContext,
+  type ReviewEngine,
+} from '@revo/review';
 import { SUMMARY_MARKER } from '@revo/shared';
 import { runReviewJob } from '../src/review/job';
 import { createWorld, ORDERS_V1, ORDERS_V2, TEST_DATABASE_URL, type World } from './world';
@@ -95,6 +102,66 @@ describe.runIf(Boolean(TEST_DATABASE_URL))('review job against the mock GitHub (
 
     const rows = await w.prisma.review.findMany({ where: { pullRequestId: await prId(w, pull.number) } });
     expect(rows.map((r) => r.status)).toEqual(['done', 'done']);
+  });
+
+  it('reviews files changed since the last review first and reads users of a removed name', async () => {
+    w.app.setBaseFiles(w.repoGithubId, {
+      'src/web/order-card.ts': 'export const label = (o: { orderTotalCents: number }) => o.orderTotalCents;\n',
+    });
+    const v1 = 'export function summary(o: { total: number }) {\n  return {\n    orderTotalCents: o.total,\n  };\n}\n';
+    const pull = w.openPull([
+      { path: 'src/api/summary.ts', before: null, after: v1 },
+      { path: 'src/lib/util.ts', before: null, after: 'export const one = 1;\n' },
+    ]);
+    const seen: EngineContext[] = [];
+    const spy: ReviewEngine = {
+      kind: fakeEngine.kind,
+      find: (ctx) => {
+        seen.push(ctx);
+        return fakeEngine.find(ctx);
+      },
+      verify: (ctx, findings) => fakeEngine.verify(ctx, findings),
+    };
+    await runReviewJob(w.payload(pull), FIRST, w.deps(spy));
+    expect(seen[0]!.files.some((f) => f.sinceLastReview)).toBe(false);
+
+    w.app.pushCommit(pull, [{ path: 'src/api/summary.ts', after: v1.replace('orderTotalCents', 'totalCents') }]);
+    await runReviewJob(w.payload(pull), FIRST, w.deps(spy));
+    const ctx = seen[1]!;
+    const summary = ctx.files.find((f) => f.path === 'src/api/summary.ts')!;
+    expect(summary.sinceLastReview?.patch).toContain('-    orderTotalCents: o.total,');
+    expect(ctx.files.find((f) => f.path === 'src/lib/util.ts')!.sinceLastReview).toBeUndefined();
+    expect(ctx.related.map((r) => r.path)).toContain('src/web/order-card.ts');
+    expect(ctx.context.text).toContain(
+      '`orderTotalCents` (object or type key renamed in src/api/summary.ts) is still used in: src/web/order-card.ts',
+    );
+
+    const row = await w.prisma.review.findFirstOrThrow({ where: { headSha: w.app.head(pull).sha } });
+    expect(row.notes).toEqual([recentNote(1), usageNote(['src/web/order-card.ts'])]);
+    expect(w.activity(pull).comments[0]!.body).toContain(usageNote(['src/web/order-card.ts']));
+  });
+
+  it('treats every file alike after a merge from the base branch', async () => {
+    const pull = w.openPull([{ path: 'src/api/orders.ts', before: null, after: ORDERS_V1 }]);
+    await runReviewJob(w.payload(pull), FIRST, w.deps());
+    w.app.mergeCommits.add(w.app.pushCommit(pull, [{ path: 'src/api/orders.ts', after: ORDERS_V2 }]));
+    await runReviewJob(w.payload(pull), FIRST, w.deps());
+    const row = await w.prisma.review.findFirstOrThrow({ where: { headSha: w.app.head(pull).sha } });
+    expect(row.notes).toEqual([]);
+  });
+
+  it('treats every file alike when the last reviewed commit is gone (force-push)', async () => {
+    const pull = w.openPull([{ path: 'src/api/orders.ts', before: null, after: ORDERS_V1 }]);
+    await runReviewJob(w.payload(pull), FIRST, w.deps());
+    await w.prisma.review.updateMany({
+      where: { headSha: w.app.head(pull).sha },
+      data: { headSha: 'f'.repeat(40) },
+    });
+    w.app.pushCommit(pull, [{ path: 'src/api/orders.ts', after: ORDERS_V2 }]);
+    const result = await runReviewJob(w.payload(pull), FIRST, w.deps());
+    expect(result.outcome).toBe('done');
+    const row = await w.prisma.review.findFirstOrThrow({ where: { headSha: w.app.head(pull).sha } });
+    expect(row.notes).toEqual([]);
   });
 
   it('is idempotent per head SHA and reviews again on demand', async () => {

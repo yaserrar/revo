@@ -157,6 +157,33 @@ export function appRoutes(state: MockAppState): MockRoute[] {
     },
     {
       method: 'GET',
+      path: '/repos/:owner/:repo/compare/:basehead',
+      handler: (req) => {
+        const repo = repoFor(state, req);
+        const [base, head] = (req.params.basehead ?? '').split('...');
+        const result = base && head ? state.compare(repo.id, base, head) : null;
+        return result ? { json: result } : notFound();
+      },
+    },
+    {
+      method: 'GET',
+      path: '/search/code',
+      handler: (req) => {
+        const installationId = state.installationForToken(req.token);
+        if (installationId === null) throw new MockError(401, 'Bad credentials');
+        const q = req.url.searchParams.get('q') ?? '';
+        const repoName = /(?:^|\s)repo:(\S+)/.exec(q)?.[1] ?? '';
+        const term = q.replace(/(?:^|\s)repo:\S+/, '').trim();
+        const [owner = '', name = ''] = repoName.split('/');
+        const repo = state.repoByName(owner, name);
+        if (!repo || repo.installationId !== installationId || !term)
+          return { status: 422, json: { message: 'Validation Failed' } };
+        const items = state.searchCode(repo.id, term).map((path) => ({ name: path.split('/').pop(), path }));
+        return { json: { total_count: items.length, incomplete_results: false, items } };
+      },
+    },
+    {
+      method: 'GET',
       path: '/repos/:owner/:repo/contents/:path*',
       handler: (req) => {
         const repo = repoFor(state, req);

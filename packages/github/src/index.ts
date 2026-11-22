@@ -16,9 +16,12 @@ export {
 } from './client';
 export {
   MAX_CONTEXT_FILE_BYTES,
+  compareCommits,
   getFileContent,
   getPullRequest,
   listPullRequestFiles,
+  searchCodePaths,
+  type ComparedFile,
   type PullRequestFile,
   type PullRequestInfo,
 } from './pulls';

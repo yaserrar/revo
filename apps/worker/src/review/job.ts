@@ -2,6 +2,7 @@ import { UnrecoverableError } from 'bullmq';
 import { repoMonthSpendUsd, type PrismaClient } from '@revo/db';
 import {
   closedCheck,
+  compareCommits,
   createCheckRun,
   failedCheck,
   getPullRequest,
@@ -32,10 +33,11 @@ import {
 } from '@revo/shared';
 import type { Logger } from '../logger';
 import { describeFailure } from './failure';
-import { fetchChangedFiles, headFileReader } from './fetch';
+import { codeSearcher, fetchChangedFiles, headFileReader } from './fetch';
 import { postInlineComments, renderResult, summaryInput } from './publish';
 import {
   ensureReview,
+  lastReviewedSha,
   loadRepo,
   markAttemptFailed,
   markRunning,
@@ -215,7 +217,22 @@ export async function runReviewJob(
     await markRunning(prisma, review.id, payload.trigger, settings.model);
     await check(review, reviewingCheck());
 
-    const files = await fetchChangedFiles(octokit, ref, live.number, live.headSha, settings.ignoreGlobs);
+    // What the pushes since the last review changed: reviewed first, with their own diff.
+    const since = await lastReviewedSha(prisma, pr.id, live.headSha);
+    const recent = since
+      ? await compareCommits(octokit, ref, since, live.headSha).catch((err: unknown) => {
+          log.warn({ pr: live.number, err: errorText(err) }, 'could not compare with the last reviewed commit');
+          return null;
+        })
+      : null;
+    const files = await fetchChangedFiles(
+      octokit,
+      ref,
+      live.number,
+      live.headSha,
+      settings.ignoreGlobs,
+      recent,
+    );
     const outcome = await reviewChanges({
       pr: { title: live.title, body: live.body },
       files,
@@ -223,6 +240,7 @@ export async function runReviewJob(
       settings,
       engine: deps.engine,
       readFile: headFileReader(octokit, ref, live.headSha),
+      searchUsages: codeSearcher(octokit, ref),
     });
     if (outcome.status === 'done') spent = spentFrom(outcome.usage);
 

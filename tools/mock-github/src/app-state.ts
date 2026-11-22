@@ -353,6 +353,59 @@ export class MockAppState {
     return this.baseFiles.get(repoId)?.get(path) ?? null;
   }
 
+  /**
+   * GitHub's commit comparison between two commits of one PR branch: `ahead`
+   * when head comes later, with the files whose content differs. Null when
+   * either commit is unknown (as after a force-push).
+   */
+  compare(repoId: number, base: string, head: string) {
+    for (const pull of this.pulls.filter((p) => p.repoId === repoId)) {
+      const from = pull.commits.findIndex((c) => c.sha === base);
+      const to = pull.commits.findIndex((c) => c.sha === head);
+      if (from === -1 || to === -1) continue;
+      const status = from === to ? 'identical' : from < to ? 'ahead' : 'behind';
+      const paths = new Set([...pull.commits[from]!.files.keys(), ...pull.commits[to]!.files.keys()]);
+      const files = [...paths].sort().flatMap((path) => {
+        const before = this.contentAt(repoId, path, base);
+        const after = this.contentAt(repoId, path, head);
+        if (before === after) return [];
+        const diff = unifiedPatch(before, after);
+        return [
+          {
+            filename: path,
+            status: before === null ? 'added' : after === null ? 'removed' : 'modified',
+            additions: diff.additions,
+            deletions: diff.deletions,
+            changes: diff.additions + diff.deletions,
+            patch: diff.patch,
+          },
+        ];
+      });
+      const commits = pull.commits.slice(from + 1, to + 1).map((c, i) => ({
+        sha: c.sha,
+        parents: [{ sha: pull.commits[from + i]!.sha }, ...(this.mergeCommits.has(c.sha) ? [{ sha: 'b'.repeat(40) }] : [])],
+      }));
+      return {
+        status,
+        ahead_by: Math.max(0, to - from),
+        behind_by: Math.max(0, from - to),
+        total_commits: commits.length,
+        commits,
+        files,
+      };
+    }
+    return null;
+  }
+
+  /** Commits pushed as merges (two parents), e.g. "Update branch" bringing the base branch in. */
+  readonly mergeCommits = new Set<string>();
+
+  /** Code search, like GitHub's: default-branch (base) files containing the term. */
+  searchCode(repoId: number, term: string): string[] {
+    const files = this.baseFiles.get(repoId) ?? new Map<string, string>();
+    return [...files].filter(([, content]) => content.includes(term)).map(([path]) => path);
+  }
+
   // ── Checks, comments, reviews ─────────────────────────────────────────────
 
   nextObjectId(): number {

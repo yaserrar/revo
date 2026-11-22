@@ -120,3 +120,63 @@ export async function getFileContent(
     throw err;
   }
 }
+
+/** GitHub lists at most this many files in a comparison. */
+const COMPARE_MAX_FILES = 300;
+
+/** A file changed between two commits, with its patch when GitHub gives one. */
+export type ComparedFile = { path: string; patch?: string };
+
+/** Commits listed per comparison: more than this and the range is not checked for merges. */
+const COMPARE_MAX_COMMITS = 100;
+
+/**
+ * Files changed from `baseSha` to `headSha`, when the head is strictly ahead
+ * of the base through the author's own commits. Null when the history was
+ * rewritten (force-push, rebase), the base commit is gone, a merge commit is
+ * in the range (e.g. "Update branch" brought the base branch in: its files
+ * are other people's changes), or the comparison is too large to check in
+ * full. Callers then treat every file alike.
+ */
+export async function compareCommits(
+  octokit: GithubClient,
+  ref: RepoRef,
+  baseSha: string,
+  headSha: string,
+): Promise<ComparedFile[] | null> {
+  try {
+    // The files of the whole comparison come on the first page, with up to per_page commits.
+    const { data } = await octokit.request('GET /repos/{owner}/{repo}/compare/{basehead}', {
+      ...ref,
+      basehead: `${baseSha}...${headSha}`,
+      per_page: COMPARE_MAX_COMMITS,
+    });
+    const files = data.files ?? [];
+    if (data.status !== 'ahead' || files.length >= COMPARE_MAX_FILES) return null;
+    if (data.total_commits > data.commits.length) return null;
+    if (data.commits.some((c) => c.parents.length > 1)) return null;
+    return files.map((f) => ({ path: f.filename, ...(f.patch ? { patch: f.patch } : {}) }));
+  } catch (err) {
+    const status = githubErrorStatus(err);
+    if (status === 404 || status === 422) return null;
+    throw err;
+  }
+}
+
+/** Results asked from one code search: users of a name, not every match. */
+const SEARCH_PER_PAGE = 20;
+
+/**
+ * Paths of repo files whose text contains `term`, from GitHub code search.
+ * It only indexes the default branch, so callers re-check each file at the
+ * commit they review. Code search allows about 10 requests a minute: callers
+ * keep to a few searches and stop at the first error.
+ */
+export async function searchCodePaths(octokit: GithubClient, ref: RepoRef, term: string): Promise<string[]> {
+  if (!/^[\w$]+$/.test(term)) return [];
+  const { data } = await octokit.request('GET /search/code', {
+    q: `${term} repo:${ref.owner}/${ref.repo}`,
+    per_page: SEARCH_PER_PAGE,
+  });
+  return [...new Set(data.items.map((item) => item.path))];
+}

@@ -203,9 +203,19 @@ registers it in `src/cli/review-local.ts` and `eval/src/run.ts`, and may add `@a
   pipeline then collects up to 5 related files (relative imports, tsconfig `paths`, the Prisma schema when a
   changed file uses Prisma) for the files kept after size limits; ≤ 60 reads per review. Also give
   `ChangedFile.newContent` for changed files (fetch at `headSha`) for full-file context and snippets.
-- `ReviewOutcome` skipped `skipReason` may now be `'too_large'` (not even one file fits the 150k-token pass
-  limit; maps to `SkipReason.too_large`). Files dropped for the token budget appear in `skippedFiles` with
-  `reason: 'size_limit'` and the note `Large PR: reviewed X of Y files.`
+- `ReviewOutcome` skipped `skipReason` may now be `'too_large'` (not even one file fits the per-pass token
+  limit, `REVIEW_LIMITS.maxInputTokensPerPass`; maps to `SkipReason.too_large`). Files dropped for the token
+  budget appear in `skippedFiles` with `reason: 'token_budget'` (over the line/file limits: `'size_limit'`)
+  and the note `Large PR: reviewed X of Y files.`
+- **Limits and incremental reviews (2026-11-22):** `REVIEW_LIMITS` = 10,000 changed lines, 100 files,
+  400k tokens per pass (`max_tokens` 32k above 150k context tokens, 10-min request timeout).
+  `ChangedFile.sinceLastReview?: { patch? }` marks files changed since the PR's last done review (worker:
+  `lastReviewedSha` + `compareCommits`, null on force-push, rebase or a merge commit in the range): reviewed
+  first (`compareFilePriority`), shown with `changed_since_last_review="true"` and `<latest_push_diff>`, note
+  `recentNote(n)`. Removed names (`usages.ts`): renamed keys (deleted key line replaced by a new key at the
+  same indent in the same hunk), removed exports and methods; users in the context listed in
+  `<removed_names>`; `ReviewInput.searchUsages` (worker: `searchCodePaths`, GitHub code search) adds up to
+  3 outside users as related files with a `reason`, note `usageNote(paths)`.
 - `CallUsage.costUsd?` (exact cost when the engine computed it, e.g. a fallback model ran); `usageCostUsd(model, usage)`,
   `priceOf(model)`, `FALLBACK_MODEL_PRICES`. `outcome.usage.costUsd` already includes this.
 - Also exported: `buildReviewContext`, `ReviewContext` (`EngineContext.context`), `contextBudgetTokens`,
@@ -520,3 +530,4 @@ Append one line per change to shared files: `date · agent · file · what · wh
 - 2026-11-21 · fix · root `turbo.json` · check/build tasks also depend on the package's own `db:generate` · `pnpm check` raced Prisma generation in parallel.
 - 2026-11-21 · fix · `tools/mock-github` · `GET /app`, comment authors (+ `POST /__mock/repos/:o/:r/pulls/:n/comments`, 403 when the App edits someone else's comment), failure injection (`app.failNext`, `POST /__mock/fail {method,path,status,times}`), repo `permissions` per user · tests of forged markers, GitHub outages and roles.
 - 2026-11-21 · user request · `packages/github` (`summary.ts`, `checks.ts` partial title, `inline.ts` `safeText` CommonMark-correct spans, fenced blocks, reference images/definitions, lone CR), `apps/worker` (`publish.ts` `SummaryContext`, `job.ts` inline comments before the summary) · richer, self-sufficient PR comment.
+- 2026-11-22 · user request · `packages/shared` (`REVIEW_LIMITS` 10k lines / 100 files / 400k tokens, `maxUsageFiles`, `maxUsageSearches`), `packages/review` (`usages.ts`, `ChangedFile.sinceLastReview`, `RelatedFile.reason`, `ReviewInput.searchUsages`, `SkippedFileReason` `token_budget`, prompt, scaled `max_tokens`), `packages/github` (`compareCommits`, `searchCodePaths`, `token_budget` wording), `apps/worker` (`lastReviewedSha`, `markRecent`, `codeSearcher`), `tools/mock-github` (compare, `/search/code`, `mergeCommits`) · large PRs reviewed in full, new pushes looked at first, renamed fields checked against their users.
