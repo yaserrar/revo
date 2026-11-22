@@ -28,6 +28,7 @@ export {
   REVIEW_ENGINE_ERROR_CODES,
   REVIEW_ENGINE_ERROR_MESSAGES,
   ReviewEngineError,
+  SUBSCRIPTION_ERROR_MESSAGES,
   isReviewEngineError,
   withEarlierUsage,
   type ReviewEngineErrorCode,

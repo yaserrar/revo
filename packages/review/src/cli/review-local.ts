@@ -1,6 +1,6 @@
 /**
  * pnpm review:local --diff change.patch [--repo ./path] [--model claude-sonnet-5-5]
- *                   [--fake | --engine claude|fake] [--effort high] [--title "PR title"]
+ *                   [--fake | --engine claude|claude-subscription|fake] [--effort high] [--title "PR title"]
  *                   [--body "description"] [--instructions "repo rules"] [--json]
  *
  * Reviews a local diff without GitHub and prints the findings and the score.
@@ -9,6 +9,10 @@
  * that still use a name the diff renames or removes. The diff may be applied there
  * or not: when a file still matches the old side, the diff is applied in
  * memory.
+ *
+ * `--engine claude-subscription` runs the review through Claude Code with the
+ * Claude subscription logged in on this machine (`claude`, then /login), for
+ * manual local testing: no API key is used and the cost shows as $0.
  */
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -22,6 +26,7 @@ import {
   type Severity,
 } from '@revo/shared';
 import { createClaudeEngine, type ClaudeEffort } from '../engines/claude';
+import { createClaudeSubscriptionEngine } from '../engines/claude-subscription';
 import { fakeEngine } from '../engines/fake';
 import { isReviewEngineError } from '../errors';
 import { parseGitDiff } from '../git-diff';
@@ -32,7 +37,8 @@ import type { ChangedFile, ReviewEngine } from '../types';
 
 const EFFORTS: readonly ClaudeEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 const USAGE =
-  'Usage: pnpm review:local --diff file.patch [--repo ./path] [--model id] [--fake | --engine claude|fake] ' +
+  'Usage: pnpm review:local --diff file.patch [--repo ./path] [--model id] ' +
+  '[--fake | --engine claude|claude-subscription|fake] ' +
   '[--effort low|medium|high|xhigh|max] [--title text] [--body text] [--instructions text] [--json]';
 
 const { values } = parseArgs({
@@ -69,7 +75,13 @@ else if (engineKind === 'claude') {
   if (!process.env.ANTHROPIC_API_KEY)
     fail('ANTHROPIC_API_KEY is not set (in .env). Use --fake to run offline.');
   engine = createClaudeEngine({ effort });
-} else fail(`Engine "${engineKind}" is not available. Available: claude, fake`);
+} else if (engineKind === 'claude-subscription') {
+  console.warn(
+    'Using the Claude subscription logged in on this machine (Claude Code): ' +
+      'for your own use on your own machine (Anthropic’s terms).',
+  );
+  engine = createClaudeSubscriptionEngine({ effort });
+} else fail(`Engine "${engineKind}" is not available. Available: claude, claude-subscription, fake`);
 
 // pnpm runs scripts from the package folder; INIT_CWD is where the user typed the command.
 const cwd = process.env.INIT_CWD ?? process.cwd();

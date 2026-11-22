@@ -136,6 +136,15 @@ ${JSON.stringify(list, null, 2)}
 </task>`;
 }
 
+/**
+ * The Claude subscription engine (Claude Code) has no report tools: the
+ * answer is its structured output, whose schema is the report tool's input.
+ * Added after the task, so the system prompt stays the same as the API's.
+ */
+export function structuredOutputNote(toolName: string): string {
+  return `In this session, \`${toolName}\` is the StructuredOutput tool: call StructuredOutput once, with exactly the input \`${toolName}\` takes. No other tool is available.`;
+}
+
 /** Sent when an answer did not pass validation (the one retry of spec 7.5). */
 export function correctionMessage(toolName: string, problem: string): string {
   return `Your answer could not be used: ${problem}. Call \`${toolName}\` again with a corrected, complete answer.`;

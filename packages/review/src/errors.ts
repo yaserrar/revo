@@ -42,6 +42,16 @@ export const REVIEW_ENGINE_ERROR_MESSAGES: Record<ReviewEngineErrorCode, string>
   bad_request: 'The Claude API rejected the review request.',
 };
 
+/**
+ * The same codes, worded for a review run on the Claude subscription of the
+ * machine running Revo (no API key involved). Codes not listed read as above.
+ */
+export const SUBSCRIPTION_ERROR_MESSAGES: Partial<Record<ReviewEngineErrorCode, string>> = {
+  auth: 'Claude Code on the machine running Revo is not signed in to a Claude subscription.',
+  rate_limited: 'The Claude subscription’s usage limit is reached.',
+  unavailable: 'Claude Code could not run the review on the machine running Revo.',
+};
+
 export class ReviewEngineError extends Error {
   readonly code: ReviewEngineErrorCode;
   readonly retryable: boolean;

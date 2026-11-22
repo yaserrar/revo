@@ -81,6 +81,12 @@ function toolSchema(schema: z.ZodType): Anthropic.Beta.BetaTool.InputSchema {
   return transformJSONSchema(json) as Anthropic.Beta.BetaTool.InputSchema;
 }
 
+/** JSON schemas of the two report tools' input (also the subscription engine's structured output). */
+export const REPORT_INPUT_SCHEMAS = {
+  [FINDINGS_TOOL_NAME]: toolSchema(ModelFindingsSchema),
+  [VERIFICATIONS_TOOL_NAME]: toolSchema(ModelVerificationsSchema),
+} as const;
+
 /** Both tools go in both passes: an identical tool list keeps the prompt cache shared. */
 export const REPORT_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
@@ -88,14 +94,14 @@ export const REPORT_TOOLS: Anthropic.Beta.BetaTool[] = [
     description:
       'Pass 1 only. Report the real problems found in the change, most important first. Call once; an empty list means the change is clean.',
     strict: true,
-    input_schema: toolSchema(ModelFindingsSchema),
+    input_schema: REPORT_INPUT_SCHEMAS[FINDINGS_TOOL_NAME],
   },
   {
     name: VERIFICATIONS_TOOL_NAME,
     description:
       'Pass 2 only. Confirm or reject each finding from pass 1, with one answer per index. Call once.',
     strict: true,
-    input_schema: toolSchema(ModelVerificationsSchema),
+    input_schema: REPORT_INPUT_SCHEMAS[VERIFICATIONS_TOOL_NAME],
   },
 ];
 
