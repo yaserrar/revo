@@ -61,9 +61,9 @@ services:
       - traefik.http.routers.revo-web.rule=Host(`${DOMAIN}`)
       - traefik.http.routers.revo-web.entrypoints=websecure
       - traefik.http.routers.revo-web.tls.certresolver=letsencryptresolver
-      - traefik.http.routers.revo-web.middlewares=secure-headers@docker,revo-body-limit
-      # GitHub webhook payloads are at most 25 MB; dashboard requests are tiny.
-      - traefik.http.middlewares.revo-body-limit.buffering.maxRequestBodyBytes=26214400
+      # No Traefik buffering middleware: it broke Server Actions (sign-in) by altering
+      # request bodies. The app bounds its own bodies (webhook 25 MB, JSON 256 KB).
+      - traefik.http.routers.revo-web.middlewares=secure-headers@docker
       - traefik.http.services.revo-web.loadbalancer.server.port=3000
     logging: *logging
 

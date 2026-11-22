@@ -119,9 +119,9 @@ services:
       - traefik.http.routers.revo.entrypoints=websecure
       - traefik.http.routers.revo.tls=true
       - traefik.http.routers.revo.tls.certresolver=le
-      - traefik.http.routers.revo.middlewares=revo-headers,revo-body-limit
-      # GitHub webhook payloads are at most 25 MB; dashboard requests are tiny.
-      - traefik.http.middlewares.revo-body-limit.buffering.maxRequestBodyBytes=26214400
+      # No Traefik buffering middleware: it broke Server Actions (sign-in) by altering
+      # request bodies. The app bounds its own bodies (webhook 25 MB, JSON 256 KB).
+      - traefik.http.routers.revo.middlewares=revo-headers
       - traefik.http.middlewares.revo-headers.headers.stsSeconds=31536000
       - traefik.http.middlewares.revo-headers.headers.stsIncludeSubdomains=true
       - traefik.http.services.revo.loadbalancer.server.port=3000
