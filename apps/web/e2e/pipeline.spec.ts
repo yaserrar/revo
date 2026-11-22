@@ -125,7 +125,7 @@ test('marking a finding useful updates the precision rate', async ({ page }) => 
   await expect(page.getByText('Marked useful')).toBeVisible();
 
   await expect.poll(async () => (await precision()).useful).toBe(before.useful + 1);
-  await page.goto('/');
+  await page.goto('/overview');
   await expect(page.getByRole('heading', { name: 'Precision · 30d' })).toBeVisible();
 });
 

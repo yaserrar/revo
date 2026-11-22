@@ -150,7 +150,7 @@ test.describe('signed in as maya-chen (every repo)', () => {
 
   test('every page fits a phone without sideways scroll', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 740 });
-    for (const path of ['/', '/prs', '/repos', '/trends']) {
+    for (const path of ['/', '/overview', '/prs', '/repos', '/trends']) {
       await page.goto(path);
       await page.waitForLoadState('networkidle');
       await noOverflow(page);
@@ -222,6 +222,6 @@ test('sign-in never redirects off site', async ({ page }) => {
   for (const target of ['/%5Cattacker.test/phish', '/%09/attacker.test', '//attacker.test']) {
     const res = await page.request.get(`/sign-in?callbackUrl=${target}`, { maxRedirects: 0 });
     expect(res.status()).toBe(307);
-    expect(res.headers().location).toBe('/');
+    expect(res.headers().location).toBe('/overview');
   }
 });

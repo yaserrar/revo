@@ -11,7 +11,7 @@ export default function NotFound() {
         This page does not exist, or you do not have access to it.
       </p>
       <Button asChild variant="outline">
-        <Link href="/">Back to the overview</Link>
+        <Link href="/overview">Back to the overview</Link>
       </Button>
     </main>
   );

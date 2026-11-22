@@ -1,2 +1,4 @@
 User-agent: *
+# Only the landing page is public; the dashboard needs a sign-in.
+Allow: /$
 Disallow: /

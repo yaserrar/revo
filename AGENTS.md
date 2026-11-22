@@ -334,7 +334,7 @@ Spec 3, 6, 7.1, 7.8, 7.9, 10, 13, 14. Code: `packages/github`, `apps/web/src/app
 
 ### Dashboard (agent C)
 
-- **Pages** (`app/(app)/`): `/` overview, `/prs` (filters in the URL: `q, repo, author, state, min, max,
+- **Landing** `app/page.tsx` (public, `components/marketing/`; `robots.txt` allows only `/`). **Pages** (`app/(app)/`): `/overview`, `/prs` (filters in the URL: `q, repo, author, state, min, max,
 blockers=yes, sort=lastReviewed|score|number, dir, page`), `/prs/[id]` (`?review=<id>` opens an older
   review; default latest), `/repos`, `/repos/[id]/settings` (`#budget` anchor), `/trends`
   (`?range=7d|30d|90d&repo=<id>`). Signed-out `/sign-in` is the mini landing.
@@ -532,3 +532,4 @@ Append one line per change to shared files: `date · agent · file · what · wh
 - 2026-11-21 · fix · `tools/mock-github` · `GET /app`, comment authors (+ `POST /__mock/repos/:o/:r/pulls/:n/comments`, 403 when the App edits someone else's comment), failure injection (`app.failNext`, `POST /__mock/fail {method,path,status,times}`), repo `permissions` per user · tests of forged markers, GitHub outages and roles.
 - 2026-11-21 · user request · `packages/github` (`summary.ts`, `checks.ts` partial title, `inline.ts` `safeText` CommonMark-correct spans, fenced blocks, reference images/definitions, lone CR), `apps/worker` (`publish.ts` `SummaryContext`, `job.ts` inline comments before the summary) · richer, self-sufficient PR comment.
 - 2026-11-22 · user request · `packages/shared` (`REVIEW_LIMITS` 10k lines / 100 files / 400k tokens, `maxUsageFiles`, `maxUsageSearches`), `packages/review` (`usages.ts`, `ChangedFile.sinceLastReview`, `RelatedFile.reason`, `ReviewInput.searchUsages`, `SkippedFileReason` `token_budget`, prompt, scaled `max_tokens`), `packages/github` (`compareCommits`, `searchCodePaths`, `token_budget` wording), `apps/worker` (`lastReviewedSha`, `markRecent`, `codeSearcher`), `tools/mock-github` (compare, `/search/code`, `mergeCommits`) · large PRs reviewed in full, new pushes looked at first, renamed fields checked against their users.
+- 2026-11-22 · user request · `apps/web` · public landing page at `/` (`components/marketing/`, `constants/site.ts`), overview moved to `/overview` (nav, proxy, `DEFAULT_AFTER_SIGN_IN`, e2e), `ScoreDial` hydrates the same with reduced motion · landing page for the open-source release.

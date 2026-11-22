@@ -20,6 +20,6 @@ describe('safeCallbackPath', () => {
     'javascript:alert(1)',
     'prs',
   ])('refuses %j', (value) => {
-    expect(safeCallbackPath(value, APP)).toBe('/');
+    expect(safeCallbackPath(value, APP)).toBe('/overview');
   });
 });

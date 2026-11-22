@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 // Optimistic gate only: the real checks run in the (app) layout and in route().
+// `/` is the public landing page; every other page except these needs a session.
 const SESSION_COOKIES = ['authjs.session-token', '__Secure-authjs.session-token'];
 const PUBLIC_PAGES = ['/sign-in', '/dev'];
 
@@ -12,12 +13,13 @@ function hasSessionCookie(req: NextRequest): boolean {
 
 export function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
-  const isPublic = PUBLIC_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  const isPublic =
+    pathname === '/' || PUBLIC_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   const signedIn = hasSessionCookie(req);
 
   if (!isPublic && !signedIn) {
     const url = new URL('/sign-in', req.url);
-    if (pathname !== '/') url.searchParams.set('callbackUrl', `${pathname}${search}`);
+    url.searchParams.set('callbackUrl', `${pathname}${search}`);
     return NextResponse.redirect(url);
   }
   return NextResponse.next();

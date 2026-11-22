@@ -39,7 +39,7 @@ export function TopNav({ user, installUrl }: { user: UserDto; installUrl: string
         className="pointer-events-auto flex h-14 w-full max-w-[60rem] items-center gap-1 rounded-full border border-border/70 bg-glass pr-2 pl-4 shadow-float backdrop-blur-xl backdrop-saturate-150"
       >
         <Link
-          href="/"
+          href="/overview"
           className="mr-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="Revo, overview"
         >
