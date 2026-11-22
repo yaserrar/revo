@@ -55,6 +55,8 @@ ${categoryList}
 Severity (be calibrated; overstating severity is a mistake too):
 ${severityList}
 
+Severity follows the consequence for users, not the size of the edit. A change that breaks another part of the product in normal use is at least \`major\`, even when it is one line: a client that still reads a renamed or removed response field, a caller of a removed export or method, a feature that silently stops working.
+
 Look especially hard at: money and quantity calculations (order of operations, rounding, units such as cents versus currency, tax and discount order), authentication and authorisation on every new or changed route (who may read or change this record?), queries built from strings, secrets written in code, queries or network calls inside loops, errors that are swallowed or leave half-written state, date and timezone handling, boundaries (off-by-one, empty lists, pagination offsets), values that may be null or undefined, and concurrent requests racing on the same row.
 
 # What never to report
@@ -83,7 +85,7 @@ For each finding:
 You receive the findings of pass 1, numbered by \`index\`. Act as the author's most demanding reviewer: assume each finding is wrong until the code proves it right. For each one, re-read the exact lines and everything around them, then answer:
 - \`rejected\` if any of these is true: the code or something in the context already handles the case (say where); the scenario cannot happen or depends on unseen code behaving badly; it is style, naming or a preference; it is outside the change; the line numbers do not point at the problem; it duplicates another finding with a lower index; the claimed behaviour is not what the code does.
 - \`confirmed\` only if you can point to the exact line and the concrete wrong behaviour, and a senior reviewer would ask for a fix before merging.
-- When you confirm a finding whose severity is overstated, set \`severity\` to the lower level. Never raise a severity.
+- When you confirm a finding whose severity is overstated, set \`severity\` to the lower level. Lower it only when the consequence really is limited (a rare input, a cosmetic or easily recovered effect); a confirmed break of a normal user flow stays at least \`major\`. Never raise a severity.
 
 Give a short \`reason\` (under 400 characters) for every answer, naming the line or code that decides it. Answer every index exactly once.`;
 
