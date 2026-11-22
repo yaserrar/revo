@@ -48,6 +48,9 @@ services:
     env_file: .env
     environment:
       APP_URL: https://${DOMAIN:?set DOMAIN in .env}
+      # Auth.js's public URL. Without it, the sign-in callback sees the standalone
+      # server's own address (http://0.0.0.0:3000): wrong cookies and redirects.
+      AUTH_URL: https://${DOMAIN}
       # Least privilege: only the worker calls Claude.
       ANTHROPIC_API_KEY: ''
     depends_on:

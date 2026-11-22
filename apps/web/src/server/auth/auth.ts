@@ -35,6 +35,13 @@ const github = GitHub({
   },
 });
 
+/** The message of the error Auth.js wrapped (never tokens: only the error text). */
+function authCause(error: Error): string | undefined {
+  const cause: unknown = (error as { cause?: unknown }).cause;
+  const inner = cause instanceof Error ? cause : (cause as { err?: unknown } | undefined)?.err;
+  return inner instanceof Error ? `${inner.name}: ${inner.message}` : undefined;
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
   secret: env.AUTH_SECRET,
@@ -42,7 +49,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   pages: { signIn: '/sign-in', error: '/sign-in' },
   providers: githubSignInEnabled ? [github] : [],
   logger: {
-    error: (error) => logger.error({ err: error.message, name: error.name }, 'auth error'),
+    // Auth.js wraps the real failure (token exchange, checks, callbacks) in `cause`.
+    error: (error) =>
+      logger.error({ err: error.message, name: error.name, cause: authCause(error) }, 'auth error'),
     warn: (code) => logger.warn({ code }, 'auth warning'),
   },
   callbacks: {
