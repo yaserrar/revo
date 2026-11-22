@@ -8,6 +8,7 @@ import { renderInstructions, SYSTEM_PROMPT } from './prompts';
 import { collectRelatedFiles } from './related';
 import { computeScore } from './score';
 import { buildSnippet } from './snippet';
+import { collectCallers } from './callers';
 import { collectNameUsages } from './usages';
 import { estimateTokens, PASS_RESERVE_TOKENS } from './tokens';
 import type {
@@ -55,8 +56,22 @@ export async function reviewChanges(input: ReviewInput): Promise<ReviewOutcome> 
     search: input.searchUsages,
     ignoreGlobs: settings.ignoreGlobs,
   });
-  // Users of a removed name first: under budget pressure, related files are dropped from the end.
-  const related = mergeRelated(input.related, [...names.extra, ...collected], names.extra.length);
+  const callers = await collectCallers({
+    files: sized.selected,
+    taken: new Set([
+      ...input.files.map((f) => f.path),
+      ...input.related.map((r) => r.path),
+      ...collected.map((r) => r.path),
+      ...names.extra.map((r) => r.path),
+    ]),
+    readFile: input.readFile,
+    search: input.searchUsages,
+    ignoreGlobs: settings.ignoreGlobs,
+  });
+  // Users of a removed name and callers of changed code first: under budget pressure,
+  // related files are dropped from the end.
+  const extra = [...names.extra, ...callers];
+  const related = mergeRelated(input.related, [...extra, ...collected], extra.length);
 
   const budget = contextBudgetTokens(settings.instructions);
   const context = buildReviewContext({
@@ -80,6 +95,8 @@ export async function reviewChanges(input: ReviewInput): Promise<ReviewOutcome> 
   if (recent > 0) notes.push(recentNote(recent));
   const outside = context.related.filter((p) => names.extra.some((f) => f.path === p));
   if (outside.length > 0) notes.push(usageNote(outside));
+  const calling = context.related.filter((p) => callers.some((f) => f.path === p));
+  if (calling.length > 0) notes.push(callerNote(calling));
   const base = {
     model: settings.model,
     engine: engine.kind,
@@ -168,6 +185,11 @@ export function recentNote(count: number): string {
 /** Note naming the files outside the PR read because they use a name the change removes or renames. */
 export function usageNote(paths: readonly string[]): string {
   return `Also read ${paths.length === 1 ? 'a file' : `${paths.length} files`} outside this PR that still ${paths.length === 1 ? 'uses' : 'use'} a name the change removes or renames: ${paths.join(', ')}.`;
+}
+
+/** Note naming the files outside the PR read because they call code the change modifies. */
+export function callerNote(paths: readonly string[]): string {
+  return `Also read ${paths.length === 1 ? 'a file' : `${paths.length} files`} outside this PR that ${paths.length === 1 ? 'calls' : 'call'} code it changes: ${paths.join(', ')}.`;
 }
 
 /** Given related files first, then collected ones, without duplicates. */

@@ -98,8 +98,9 @@ export type ReviewInput = {
    */
   readFile?: FileReader;
   /**
-   * Searches the repo for files using a name the change removes or renames,
-   * so callers outside the change are given as context. Needs `readFile`.
+   * Searches the repo for files containing a term: users of a name the change
+   * removes or renames, and importers of a changed module (their callers of
+   * changed functions are given as context). Needs `readFile`.
    */
   searchUsages?: UsageSearch;
 };

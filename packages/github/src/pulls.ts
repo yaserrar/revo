@@ -173,9 +173,10 @@ const SEARCH_PER_PAGE = 20;
  * keep to a few searches and stop at the first error.
  */
 export async function searchCodePaths(octokit: GithubClient, ref: RepoRef, term: string): Promise<string[]> {
-  if (!/^[\w$]+$/.test(term)) return [];
+  // Identifiers and module file names (`work-usage.service`) only, searched as an exact phrase.
+  if (!/^[\w$][\w$.-]*$/.test(term)) return [];
   const { data } = await octokit.request('GET /search/code', {
-    q: `${term} repo:${ref.owner}/${ref.repo}`,
+    q: `"${term}" repo:${ref.owner}/${ref.repo}`,
     per_page: SEARCH_PER_PAGE,
   });
   return [...new Set(data.items.map((item) => item.path))];

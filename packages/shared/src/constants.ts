@@ -208,6 +208,10 @@ export const REVIEW_LIMITS = {
   maxUsageFiles: 3,
   /** Names searched for in files outside the change (each search is one GitHub API call). */
   maxUsageSearches: 3,
+  /** Files outside the change that call a function it modifies, on top of the related files. */
+  maxCallerFiles: 3,
+  /** Changed modules whose importers are searched for (one GitHub API call each). */
+  maxCallerSearches: 2,
   /** Findings requested from pass 1. */
   maxFindingsPass1: 10,
   /** Snippets stored for display (privacy: never full files). */

@@ -173,7 +173,10 @@ export function appRoutes(state: MockAppState): MockRoute[] {
         if (installationId === null) throw new MockError(401, 'Bad credentials');
         const q = req.url.searchParams.get('q') ?? '';
         const repoName = /(?:^|\s)repo:(\S+)/.exec(q)?.[1] ?? '';
-        const term = q.replace(/(?:^|\s)repo:\S+/, '').trim();
+        const term = q
+          .replace(/(?:^|\s)repo:\S+/, '')
+          .trim()
+          .replace(/^"(.*)"$/, '$1');
         const [owner = '', name = ''] = repoName.split('/');
         const repo = state.repoByName(owner, name);
         if (!repo || repo.installationId !== installationId || !term)

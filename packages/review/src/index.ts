@@ -1,6 +1,7 @@
 // Public interface of @revo/review. Additive changes only (see AGENTS.md).
 // Node-only helpers (local file reader) live in '@revo/review/node'.
-export { contextBudgetTokens, recentNote, reviewChanges, usageNote } from './review';
+export { callerNote, contextBudgetTokens, recentNote, reviewChanges, usageNote } from './review';
+export { callsOf, changedFunctions, collectCallers, importsModule, moduleName } from './callers';
 export { computeScore, countBySeverity, pointsLost, type ScoreResult } from './score';
 export {
   FALLBACK_MODEL_PRICES,

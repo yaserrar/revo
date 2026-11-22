@@ -216,7 +216,10 @@ registers it in `src/cli/review-local.ts` and `eval/src/run.ts`, and may add `@a
   `recentNote(n)`. Removed names (`usages.ts`): renamed keys (deleted key line replaced by a new key at the
   same indent in the same hunk), removed exports and methods; users in the context listed in
   `<removed_names>`; `ReviewInput.searchUsages` (worker: `searchCodePaths`, GitHub code search) adds up to
-  3 outside users as related files with a `reason`, note `usageNote(paths)`.
+  3 outside users as related files with a `reason`, note `usageNote(paths)`. Callers (`callers.ts`): for the
+  functions and methods whose bodies the diff touches, up to 3 files outside the PR that import the changed
+  module (search for its file name, re-checked at the head) and call one of them, as related files with a
+  `reason`; note `callerNote(paths)`.
 - `CallUsage.costUsd?` (exact cost when the engine computed it, e.g. a fallback model ran); `usageCostUsd(model, usage)`,
   `priceOf(model)`, `FALLBACK_MODEL_PRICES`. `outcome.usage.costUsd` already includes this.
 - Also exported: `buildReviewContext`, `ReviewContext` (`EngineContext.context`), `contextBudgetTokens`,
@@ -533,3 +536,4 @@ Append one line per change to shared files: `date · agent · file · what · wh
 - 2026-11-21 · user request · `packages/github` (`summary.ts`, `checks.ts` partial title, `inline.ts` `safeText` CommonMark-correct spans, fenced blocks, reference images/definitions, lone CR), `apps/worker` (`publish.ts` `SummaryContext`, `job.ts` inline comments before the summary) · richer, self-sufficient PR comment.
 - 2026-11-22 · user request · `packages/shared` (`REVIEW_LIMITS` 10k lines / 100 files / 400k tokens, `maxUsageFiles`, `maxUsageSearches`), `packages/review` (`usages.ts`, `ChangedFile.sinceLastReview`, `RelatedFile.reason`, `ReviewInput.searchUsages`, `SkippedFileReason` `token_budget`, prompt, scaled `max_tokens`), `packages/github` (`compareCommits`, `searchCodePaths`, `token_budget` wording), `apps/worker` (`lastReviewedSha`, `markRecent`, `codeSearcher`), `tools/mock-github` (compare, `/search/code`, `mergeCommits`) · large PRs reviewed in full, new pushes looked at first, renamed fields checked against their users.
 - 2026-11-22 · user request · `apps/web` · public landing page at `/` (`components/marketing/`, `constants/site.ts`), overview moved to `/overview` (nav, proxy, `DEFAULT_AFTER_SIGN_IN`, e2e), `ScoreDial` hydrates the same with reduced motion · landing page for the open-source release.
+- 2026-11-22 · user request · `packages/review` (`callers.ts`, `callerNote`, prompt), `packages/shared` (`maxCallerFiles`, `maxCallerSearches`), `packages/github` (`searchCodePaths` takes module names, exact phrase), `tools/mock-github` (quoted search) · a changed function's callers outside the PR are reviewed with it (the CSV header bug was dismissed without them).
