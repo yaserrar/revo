@@ -1,7 +1,9 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
+import { Lock } from 'iconsax-react';
 import { AnimatePresence, motion } from 'motion/react';
+import Link from 'next/link';
 import { useEffect, type ReactNode } from 'react';
 import { Controller, useForm, useWatch, type Resolver } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -134,6 +136,7 @@ export function RepoSettingsForm({ page }: { page: RepoSettingsPageDto }) {
     name: ['threshold', 'instructions', 'ignoreGlobs', 'monthlyBudgetUsd', 'enabled'],
   });
   const tone = TONE_CLASSES[scoreTone(Math.max(0, threshold - 1))];
+  const freeTier = page.aiAccess.effective === 'free';
 
   return (
     <form onSubmit={onSubmit} noValidate className="pb-28" aria-label={`Settings for ${page.repo.fullName}`}>
@@ -219,6 +222,21 @@ export function RepoSettingsForm({ page }: { page: RepoSettingsPageDto }) {
           title="Model"
           description="Both passes, find and verify, use this model. Prices per million tokens."
         >
+          {freeTier ? (
+            <p
+              role="note"
+              className="mb-4 rounded-2xl border border-border bg-paper-sunken px-4 py-3 text-sm text-ink-soft"
+            >
+              {page.aiAccess.accountLogin} is on Revo&rsquo;s free tier, which runs Haiku and Sonnet.{' '}
+              <Link
+                href="/repos#ai-access"
+                className="font-medium text-accent-brand-ink underline-offset-4 hover:underline"
+              >
+                Add your own Anthropic API key
+              </Link>{' '}
+              to use Opus.
+            </p>
+          ) : null}
           <Controller
             control={control}
             name="model"
@@ -227,14 +245,18 @@ export function RepoSettingsForm({ page }: { page: RepoSettingsPageDto }) {
                 <legend className="sr-only">Model</legend>
                 {page.models.map((m) => {
                   const checked = field.value === m.id;
+                  const locked = freeTier && !page.aiAccess.freeTierModels.includes(m.id);
                   return (
                     <label
                       key={m.id}
                       className={cn(
-                        'relative flex cursor-pointer flex-col rounded-3xl border bg-card p-5 shadow-card transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring',
+                        'relative flex flex-col rounded-3xl border bg-card p-5 shadow-card transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring',
+                        locked && !checked ? 'cursor-not-allowed' : 'cursor-pointer',
                         checked
                           ? 'border-accent-brand ring-1 ring-accent-brand'
-                          : 'border-border hover:border-foreground/25',
+                          : locked
+                            ? 'border-dashed border-border'
+                            : 'border-border hover:border-foreground/25',
                       )}
                     >
                       <input
@@ -242,11 +264,17 @@ export function RepoSettingsForm({ page }: { page: RepoSettingsPageDto }) {
                         name={field.name}
                         value={m.id}
                         checked={checked}
+                        disabled={locked && !checked}
+                        aria-describedby={locked ? `model-${m.id}-locked` : undefined}
                         onChange={() => field.onChange(m.id)}
                         className="sr-only"
                       />
                       <span className="flex items-center justify-between gap-2">
-                        <span className="display text-2xl">{m.name.replace('Claude ', '')}</span>
+                        <span
+                          className={cn('display text-2xl', locked && !checked && 'text-muted-foreground')}
+                        >
+                          {m.name.replace('Claude ', '')}
+                        </span>
                         <span
                           aria-hidden="true"
                           className={cn(
@@ -258,6 +286,15 @@ export function RepoSettingsForm({ page }: { page: RepoSettingsPageDto }) {
                         </span>
                       </span>
                       <span className="mt-2 flex-1 text-sm text-muted-foreground">{m.description}</span>
+                      {locked ? (
+                        <span
+                          id={`model-${m.id}-locked`}
+                          className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-ink-soft"
+                        >
+                          <Lock className="size-3.5" />
+                          {checked ? 'Runs on Sonnet on the free tier' : 'Needs your own API key'}
+                        </span>
+                      ) : null}
                       <span className="mt-4 border-t border-border pt-3 font-mono text-[0.6875rem] text-ink-soft">
                         {formatUsd(m.inputPerMTok)} in · {formatUsd(m.outputPerMTok)} out
                       </span>

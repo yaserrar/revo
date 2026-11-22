@@ -3,7 +3,17 @@ import type { BudgetDto } from './repo';
 
 /** Why "Review again" is unavailable, or null when it is allowed. */
 export type ReviewAgainBlock =
-  'budget' | 'disabled' | 'not_open' | 'suspended' | 'in_progress' | 'no_permission' | null;
+  | 'budget'
+  | 'disabled'
+  | 'not_open'
+  | 'suspended'
+  | 'in_progress'
+  | 'no_permission'
+  /** The account used its free reviews this month (free tier). */
+  | 'free_limit'
+  /** Revo's free reviews are paused for every account until next month. */
+  | 'free_paused'
+  | null;
 
 export type PullRequestDetailDto = PullRequestSummaryDto & {
   body: string;

@@ -1,15 +1,17 @@
-import { ArrowRight, Coin1, ExportSquare, Flash, MessageText1, ShieldTick } from 'iconsax-react';
+import { Add, ArrowRight, Coin1, ExportSquare, Flash, MessageText1, ShieldTick } from 'iconsax-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ComponentType, ReactNode } from 'react';
 import { GithubMark } from '~/components/brand/github-mark';
-import { Wordmark } from '~/components/brand/wordmark';
 import { ExampleReview } from '~/components/marketing/example-review';
 import { LandingHeader } from '~/components/marketing/landing-header';
+import { SiteFooter } from '~/components/marketing/site-footer';
 import { ScoreDial } from '~/components/revo/score-dial';
 import { Button } from '~/components/ui/button';
 import { DEPLOY_GUIDE_URL, SOURCE_URL } from '~/constants/site';
 import { getSessionUser } from '~/server/auth/session';
+import { env } from '~/server/config/env';
+import { installUrlFor } from '~/server/modules/repos/install-url';
 
 export const metadata: Metadata = {
   title: { absolute: 'Revo · AI code review that proves its point' },
@@ -101,6 +103,8 @@ export default async function LandingPage() {
   const primary = signedIn
     ? { href: '/overview', label: 'Open dashboard' }
     : { href: '/sign-in', label: 'Sign in with GitHub' };
+  const installUrl = installUrlFor(env.GITHUB_APP_SLUG);
+  const freeReviews = env.FREE_REVIEWS_PER_MONTH;
 
   return (
     <>
@@ -124,15 +128,36 @@ export default async function LandingPage() {
                   {primary.label}
                 </Link>
               </Button>
-              <Button asChild size="lg" variant="outline" className="gap-2">
-                <a href={SOURCE_URL} target="_blank" rel="noreferrer">
-                  View the source
-                  <ExportSquare className="size-4" />
-                </a>
-              </Button>
+              {installUrl ? (
+                <Button asChild size="lg" variant="accent" className="gap-2">
+                  <a href={installUrl}>
+                    <Add className="size-[18px]" />
+                    Install on GitHub
+                  </a>
+                </Button>
+              ) : (
+                <Button asChild size="lg" variant="outline" className="gap-2">
+                  <a href={SOURCE_URL} target="_blank" rel="noreferrer">
+                    View the source
+                    <ExportSquare className="size-4" />
+                  </a>
+                </Button>
+              )}
             </div>
-            <p className="mt-5 font-mono text-[0.6875rem] text-muted-foreground">
-              MIT licensed · Self-host with Docker · Powered by Claude
+            <p className="mt-6 max-w-md text-sm leading-relaxed text-ink-soft">
+              Free for {freeReviews} reviews a month per account on Claude Haiku and Sonnet. Bring your own
+              Anthropic API key for unlimited reviews on every model.
+            </p>
+            <p className="mt-3 font-mono text-[0.6875rem] text-muted-foreground">
+              <a
+                href={SOURCE_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="underline-offset-4 hover:text-foreground hover:underline"
+              >
+                Source on GitHub
+              </a>{' '}
+              · MIT licensed · Self-host with Docker · Powered by Claude
             </p>
           </div>
           <ExampleReview />
@@ -244,25 +269,7 @@ export default async function LandingPage() {
         </section>
       </main>
 
-      <footer className="border-t border-border">
-        <div className="page-frame flex flex-col gap-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <Wordmark />
-            <span className="font-mono text-[0.6875rem]">MIT · {new Date().getFullYear()}</span>
-          </div>
-          <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2">
-            <a href={SOURCE_URL} target="_blank" rel="noreferrer" className="hover:text-foreground">
-              GitHub
-            </a>
-            <a href={DEPLOY_GUIDE_URL} target="_blank" rel="noreferrer" className="hover:text-foreground">
-              Self-hosting
-            </a>
-            <Link href={signedIn ? '/overview' : '/sign-in'} className="hover:text-foreground">
-              {signedIn ? 'Dashboard' : 'Sign in'}
-            </Link>
-          </nav>
-        </div>
-      </footer>
+      <SiteFooter signedIn={signedIn} />
     </>
   );
 }

@@ -12,6 +12,10 @@ const SKIP_EXPLAINED: Record<SkipReason, string> = {
   no_reviewable_files:
     'Every changed file is ignored (lockfiles, generated code or the repo’s ignore patterns).',
   disabled: 'Reviews are turned off for this repo.',
+  free_limit:
+    'This account used its free reviews for the month, so Revo did not call the model. Add your own Anthropic API key to keep reviewing, or wait for the 1st.',
+  free_paused:
+    'Revo’s free reviews are paused until next month. Add your own Anthropic API key to keep reviewing.',
 };
 
 /** What to show instead of findings when the selected review has no score. */

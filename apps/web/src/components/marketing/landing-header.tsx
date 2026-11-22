@@ -6,9 +6,9 @@ import { Button } from '~/components/ui/button';
 import { SOURCE_URL } from '~/constants/site';
 
 const SECTIONS = [
-  { href: '#how', label: 'How it works' },
-  { href: '#score', label: 'Score' },
-  { href: '#open-source', label: 'Open source' },
+  { href: '/#how', label: 'How it works' },
+  { href: '/#score', label: 'Score' },
+  { href: '/#open-source', label: 'Open source' },
 ] as const;
 
 /** The landing page's floating pill, in the dashboard nav's shape. */

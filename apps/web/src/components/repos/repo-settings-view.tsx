@@ -2,7 +2,7 @@
 
 import { ArrowLeft, ExportSquare } from 'iconsax-react';
 import Link from 'next/link';
-import { modelName } from '@revo/shared';
+import { EFFECTIVE_AI_ACCESS_LABELS, modelName } from '@revo/shared';
 import { MetaItem, PageHeader } from '~/components/layout/page-header';
 import { ErrorState } from '~/components/shared/error-state';
 import { Button } from '~/components/ui/button';
@@ -66,6 +66,7 @@ export function RepoSettingsView({ id }: { id: string }) {
         meta={
           <>
             <MetaItem label="Model">{modelName(data.settings.model)}</MetaItem>
+            <MetaItem label="Paid by">{EFFECTIVE_AI_ACCESS_LABELS[data.aiAccess.effective]}</MetaItem>
             <MetaItem label="Spent">
               {formatUsd(data.budget.spentUsd)} / {formatUsd(data.budget.budgetUsd)}
             </MetaItem>

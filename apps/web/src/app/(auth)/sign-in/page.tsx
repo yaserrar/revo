@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { GithubMark } from '~/components/brand/github-mark';
 import { Wordmark } from '~/components/brand/wordmark';
@@ -83,6 +84,15 @@ export default async function SignInPage({
           ) : null}
           <p className="font-mono text-[0.6875rem] text-muted-foreground">
             Read-only access to your profile. Repos come from the Revo GitHub App.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            <Link href="/privacy" className="underline-offset-4 hover:text-foreground hover:underline">
+              Privacy
+            </Link>
+            {' · '}
+            <Link href="/terms" className="underline-offset-4 hover:text-foreground hover:underline">
+              Terms
+            </Link>
           </p>
         </div>
       </section>

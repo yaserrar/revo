@@ -22,5 +22,6 @@ export const qk = {
     list: () => ['repos', 'list'] as const,
     settings: (id: string) => ['repos', id, 'settings'] as const,
   },
+  accounts: () => ['accounts'] as const,
   trends: (range: string, repo?: string) => ['trends', range, repo ?? 'all'] as const,
 };

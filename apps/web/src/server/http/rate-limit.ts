@@ -32,6 +32,8 @@ export const RATE_LIMITS = {
   webhook: { max: 120, windowMs: 60_000 },
   /** Spec 14: "Review again". Per user. */
   reviewAgain: { max: 5, windowMs: 10 * 60_000 },
+  /** Saving an Anthropic API key: each try is a call to Anthropic. Per user. */
+  anthropicKey: { max: 5, windowMs: 10 * 60_000 },
   /** Any other mutation. Per user. */
   mutation: { max: 60, windowMs: 60_000 },
 } as const;

@@ -25,6 +25,7 @@ export function presentReview(r: Review): ReviewDto {
     skippedFiles: r.skippedFiles,
     notes: r.notes,
     error: r.error,
+    aiSource: r.aiSource,
     createdAt: r.createdAt.toISOString(),
     finishedAt: r.finishedAt?.toISOString() ?? null,
   };

@@ -1,9 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 // Optimistic gate only: the real checks run in the (app) layout and in route().
-// `/` is the public landing page; every other page except these needs a session.
+// `/` is the public landing page; every other page except these needs a session
+// (sign-in, the design kit, and the legal pages).
 const SESSION_COOKIES = ['authjs.session-token', '__Secure-authjs.session-token'];
-const PUBLIC_PAGES = ['/sign-in', '/dev'];
+const PUBLIC_PAGES = ['/sign-in', '/dev', '/privacy', '/terms'];
 
 function hasSessionCookie(req: NextRequest): boolean {
   return req.cookies

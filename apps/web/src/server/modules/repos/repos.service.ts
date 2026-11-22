@@ -1,18 +1,27 @@
 import 'server-only';
 import { Prisma, startOfUtcMonth } from '@revo/db';
-import { BUILT_IN_IGNORE_GLOBS, MODEL_IDS, MODELS, type RepoSettingsDto } from '@revo/shared';
+import {
+  BUILT_IN_IGNORE_GLOBS,
+  FREE_TIER_MODELS,
+  MODEL_IDS,
+  MODELS,
+  modelAllowedFor,
+  modelName,
+  type RepoSettingsDto,
+} from '@revo/shared';
 import { MODEL_PRICES } from '@revo/review';
 import { windowStart } from '~/lib/time-buckets';
 import type { RepoSettingsBody } from '~/schemas/repo-settings';
 import type { ReposDto, RepoSettingsPageDto } from '~/types/repo';
 import { prisma } from '../../config/prisma';
-import { notFound } from '../../http/errors';
+import { notFound, unprocessable } from '../../http/errors';
 import {
   presentBudget,
   presentInstallation,
   presentRepo,
   presentRepoSettings,
 } from '../../presenters/repo.presenter';
+import { accountAccess } from '../accounts/accounts.service';
 import { budgetFor, budgetLimit } from './budget';
 
 type RepoStatsRow = {
@@ -24,7 +33,10 @@ type RepoStatsRow = {
 };
 
 async function loadRepo(repoId: string) {
-  const repo = await prisma.repo.findUnique({ where: { id: repoId }, include: { settings: true } });
+  const repo = await prisma.repo.findUnique({
+    where: { id: repoId },
+    include: { settings: true, installation: true },
+  });
   if (!repo) throw notFound('Repo');
   return repo;
 }
@@ -84,11 +96,27 @@ export const reposService = {
       })),
       builtInIgnoreGlobs: [...BUILT_IN_IGNORE_GLOBS],
       canEdit,
+      aiAccess: {
+        accountLogin: repo.installation.accountLogin,
+        effective: accountAccess(repo.installation),
+        freeTierModels: [...FREE_TIER_MODELS],
+      },
     };
   },
 
   /** Partial update; `enabled` lives on Repo, the rest on RepoSettings (created on first save). */
   async updateSettings(repoId: string, body: RepoSettingsBody): Promise<RepoSettingsDto> {
+    if (body.model) {
+      // The free tier runs Haiku and Sonnet only; the form disables the others the same way.
+      // A model saved earlier (e.g. while the account had its own key) may stay: the worker
+      // runs it on Sonnet and says so in the review.
+      const repo = await loadRepo(repoId);
+      const unchanged = body.model === (repo.settings?.model ?? MODEL_IDS[0]);
+      if (!unchanged && !modelAllowedFor(body.model, accountAccess(repo.installation)))
+        throw unprocessable(
+          `${modelName(body.model)} needs your own Anthropic API key. Add one for ${repo.installation.accountLogin} on the Repos page, or pick Haiku or Sonnet.`,
+        );
+    }
     const { enabled, monthlyBudgetUsd, ignoreGlobs, ...rest } = body;
     const data = {
       ...rest,

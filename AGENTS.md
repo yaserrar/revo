@@ -86,7 +86,7 @@ pnpm db:migrate        # prisma migrate dev (revo_dev)
 pnpm db:seed           # wipe + demo data (northwind-labs, 42 PRs over 30 days)
 pnpm db:test:prepare   # prisma migrate deploy on revo_test (migrate reset is blocked for agents)
 pnpm db:generate       # regenerate the Prisma client
-pnpm review:local --diff change.patch [--repo ./checkout] [--model id] [--fake | --engine claude] [--effort high] [--title t] [--body b] [--instructions i] [--json]
+pnpm review:local --diff change.patch [--repo ./checkout] [--model id] [--fake | --engine claude|claude-subscription] [--effort high] [--title t] [--body b] [--instructions i] [--json]
 pnpm eval [--engine fake|claude] [--model claude-sonnet-5-5,claude-haiku-5-5] [--only 001,101] [--effort high] [--concurrency 3] [--max-spend 3] [--label name]
 pnpm mock:github       # mock GitHub on 4830
 pnpm setup:local       # first run: writes .env for the mock GitHub with fresh secrets (never overwrites)
@@ -118,7 +118,10 @@ Delete `.next/dev` caches you create when they grow.
 All variables are in `.env.example`. Highlights:
 
 - `DATABASE_URL`, `TEST_DATABASE_URL`, `REDIS_URL`, `APP_URL`
-- `AUTH_SECRET` (Auth.js), `TOKEN_ENCRYPTION_KEY` (GitHub user tokens at rest; defaults to a key derived from `AUTH_SECRET`)
+- `AUTH_SECRET` (Auth.js), `TOKEN_ENCRYPTION_KEY` (GitHub user tokens and accounts' Anthropic keys at rest;
+  defaults to a key derived from `AUTH_SECRET`; **web and worker must have the same value**)
+- AI access per account: `FREE_REVIEWS_PER_MONTH` (20), `FREE_MONTHLY_CAP_USD` (50), `REVO_OWNER_ACCOUNTS`
+  (comma-separated logins, no free limits), `REVO_ALLOW_CLAUDE_SUBSCRIPTION` (off), `CONTACT_EMAIL` (web)
 - `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_SLUG`
 - `GITHUB_OAUTH_BASE_URL`, `GITHUB_API_URL`: mock GitHub. Honoured outside production; in a production build only with `REVO_TEST_MODE=1` and a localhost URL.
 - `ANTHROPIC_API_KEY`, `REVO_ENGINE=claude|fake` (defaults to `claude` when a key is set)
@@ -228,6 +231,15 @@ registers it in `src/cli/review-local.ts` and `eval/src/run.ts`, and may add `@a
   `estimateTokens`, `CHARS_PER_TOKEN`, `SYSTEM_PROMPT`, `looksBinary`, `looksGenerated`, `looksMinified`,
   `compareFilePriority`, `largePrNote`, `fileChangedLines`, `responseUsage`.
 - Node-only subpath `@revo/review/node`: `createDirectoryReader(root, overlay?)` (local `FileReader`; used by the CLI and eval).
+- **Claude subscription engine (2026-11-22):** `createClaudeSubscriptionEngine({ effort?, onCall?, query?, timeoutMs?,
+pathToClaudeCodeExecutable?, env? })` in `@revo/review/node` → `ReviewEngine` (`kind: 'claude'`): the two passes through
+  Claude Code (`@anthropic-ai/claude-agent-sdk`, loaded on first use) with the machine's Claude login. Same system
+  prompt, instructions, context and task; the answer is the SDK's structured output (`outputFormat` = the report tool's
+  input schema, `REPORT_INPUT_SCHEMAS`, plus `structuredOutputNote`), parsed by the same `tool-schemas.ts` parsers with
+  one retry. No tools, MCP servers, settings or skills, `verbatimPrompts`, `persistSession: false`, an empty temp cwd
+  per run, API keys and secrets stripped from its env (`subscriptionEnv`). Tokens from `modelUsage`, cost $0. Errors:
+  signed out → `auth`, usage limit → `rate_limited`, refusal, outages; `SUBSCRIPTION_ERROR_MESSAGES` (main entry)
+  words them for the worker. Tests inject `query`; never the real SDK.
 - Eval: `eval/demo-repo` (Harbor Goods, Next-style API + Prisma) and `eval/cases/<id>/{case.json,change.patch}`
   (10 bug PRs, 5 clean). Results in `eval/results/<stamp>-<engine>[-label].{json,md}`; real spend appended to
   `eval/results/spend.jsonl`. `eval/demo-repo` is in `.prettierignore` (patches depend on its exact bytes).
@@ -247,6 +259,13 @@ registers it in `src/cli/review-local.ts` and `eval/src/run.ts`, and may add `@a
   strings validated with `CategorySchema`. GitHub ids are `BigInt` (`bigintToNumber` in presenters).
   Money is `Decimal` (`decimalToNumber`).
 - `onDelete: Cascade` from `Installation` down to `Feedback` and `RepoAccess` (spec 14).
+- **Free-tier ledger** `FreeTierUsage` (no foreign keys, survives uninstall, repo removal and transfer; billing counters
+  only): one row per run billed to Revo's key (`freeTierUsageEntry`, written with the ReviewCost row), keyed by
+  `Installation.accountGithubId` (`installation.account.id`, stable across reinstalls) with the login as fallback.
+  `accountFreeReviewsUsed(prisma, account, now?, { excludeReviewId? })` = this month's rows + the account's free runs
+  `running`; the worker decides and marks `running` inside `lockFreeTierAccount` (`pg_advisory_xact_lock`).
+  `freeTierSpendUsd` sums the ledger (owners excluded; in-flight runs can pass the cap by their own cost).
+  `pruneFreeTierUsage` keeps this and last UTC month (worker prune timer).
 
 ### `apps/web` server
 
@@ -263,7 +282,7 @@ registers it in `src/cli/review-local.ts` and `eval/src/run.ts`, and may add `@a
   `~/server/auth/repo-access` — `accessibleRepoIds(userId)` (refreshes from GitHub when older than 1 h),
   `refreshRepoAccess(userId)`, `assertRepoAccess(userId, repoId)` (404, never 403).
   **Every dashboard query filters by `await access.repoIds()`.** Feedback and "Review again" check access too.
-- `~/server/security/crypto` — `encryptSecret`, `decryptSecret` (AES-256-GCM).
+- `~/server/security/crypto` — `encryptSecret`, `decryptSecret` (AES-256-GCM, through `@revo/shared/secret-box`).
 - `~/server/queue/review-queue` — `reviewQueue()`, `enqueueReview(payload, manualNonce?)` (agent B owns it).
 - "Review again" — `pullRequestsService.reviewAgain(id, repoIds, userId)` (`server/modules/pull-requests`):
   checks access (404), the block reasons (in progress / suspended / disabled / not open → 409, budget → 402),
@@ -353,6 +372,23 @@ blockers=yes, sort=lastReviewed|score|number, dir, page`), `/prs/[id]` (`?review
   (the form turns view only); `GET /api/reviews/[id]` → `ReviewDetailDto` (confirmed `findings`, `rejected`, `breakdown`,
   `previousScore`, `threshold`); `PUT|DELETE /api/findings/[id]/feedback` (confirmed findings only, 422 otherwise)
   → `FindingFeedbackDto`; `GET /api/trends?range&repo` → `TrendsDto`.
+- **AI access (2026-11-22):** `GET /api/accounts` → `AccountsDto` (each visible installation: `aiAccess`, `effective`
+  (`effectiveAiAccess`: free | owner | own_key | subscription), `keyHint` (last 4 only, the key never leaves the server),
+  `freeTier { used, limit, resetsAt, paused }`, `canEdit`, `updatedAt/By`); `PUT /api/accounts/[id]/anthropic-key
+{apiKey}` (rate limit `anthropicKey`, 5 per 10 min) checks the key with one `models.list` call
+  (`server/modules/accounts/anthropic-key.ts`, official SDK; refused → 422, no answer → 503, nothing saved), then stores
+  it encrypted and switches to `own_key`; `DELETE` removes it (back to free); `PATCH /api/accounts/[id]/ai-access
+{aiAccess}` (own_key needs a saved key, subscription needs `REVO_ALLOW_CLAUDE_SUBSCRIPTION`, else 422). Changes need
+  **Admin** on at least one of the account's repos (403), other accounts answer 404. UI: "AI access" section at the
+  bottom of `/repos` (`#ai-access`, `components/accounts/`). Free tier in the dashboard: settings `PATCH` refuses
+  switching to a model outside `FREE_TIER_MODELS` (422; a model saved earlier may stay, the worker clamps it), the form
+  shows Opus disabled ("Needs your own API key"); "Review again" is blocked with `free_limit` / `free_paused` (409);
+  run details show "Paid by" (`components/pr-detail/paid-by.ts`: queued/skipped → "—"; `ReviewDto.aiSource` when set;
+  null with tokens or cost = Free tier (older rows); null with nothing billed = "—", failed before an engine was chosen). Public `/privacy` and `/terms`
+  (`components/marketing/legal-page.tsx`, `CONTACT_EMAIL`), landing "Install on GitHub" + free-tier line, `SiteFooter`.
+  Tests: `server/modules/accounts/accounts.api.test.ts` (route handlers, revo_test, stubbed session/access/key check),
+  `anthropic-key.test.ts` (SDK against the mock's `/anthropic/v1/models`). Offline key checks in a browser: start the web
+  app with `ANTHROPIC_BASE_URL=http://localhost:4830/anthropic` (keys starting `sk-ant-mock-` pass).
 - **Definitions:** "latest review" = newest `Review.createdAt` of the PR (any status); list score filters and
   blockers use it. Overview: PRs reviewed / average score over the last 7 days (rolling) vs the 7 before;
   precision = useful / (useful + wrong) over feedback rows of the last 30 days; cost = `sum(ReviewCost.costUsd)` by `spentAt`
@@ -538,3 +574,12 @@ Append one line per change to shared files: `date · agent · file · what · wh
 - 2026-11-22 · user request · `apps/web` · public landing page at `/` (`components/marketing/`, `constants/site.ts`), overview moved to `/overview` (nav, proxy, `DEFAULT_AFTER_SIGN_IN`, e2e), `ScoreDial` hydrates the same with reduced motion · landing page for the open-source release.
 - 2026-11-22 · user request · `packages/review` (`callers.ts`, `callerNote`, prompt), `packages/shared` (`maxCallerFiles`, `maxCallerSearches`), `packages/github` (`searchCodePaths` takes module names, exact phrase), `tools/mock-github` (quoted search) · a changed function's callers outside the PR are reviewed with it (the CSV header bug was dismissed without them).
 - 2026-11-22 · user request · `apps/web` (`src/instrumentation-client.ts`, `next.config.ts` `/ingest` rewrites, proxy matcher skips `ingest`, Dockerfile build args), `.github/workflows/deploy.yml` (`vars.NEXT_PUBLIC_POSTHOG_KEY`), `.env.example` · optional PostHog analytics like the portfolio: anonymous, no session recordings, no element text or attributes, query strings stripped from URLs.
+- 2026-11-22 · AI access (data + worker) · `packages/shared` · `ai-access.ts` (`AI_ACCESS`, `AI_SOURCES` + labels, `FREE_TIER_MODELS`, `freeTierModel()` clamp + note, `DEFAULT_FREE_*`, `parseOwnerAccounts`, `isOwnerAccount`, `startOfNextUtcMonth`, `formatUtcDate`, `freeLimitText`, `FREE_PAUSED_TEXT`, `freeTierUsageText`, `accountKeyRefusedText`, `SUBSCRIPTION_TERMS_NOTE`), `SKIP_REASONS` + `free_limit`/`free_paused` (+ labels), Node-only subpath `@revo/shared/secret-box` (`createSecretBox`, `hasSecretKeyMaterial`, `secretHint`; the AES-GCM scheme moved from the web app, same format and key derivation) · who pays for Claude per account; the worker decrypts accounts' keys.
+- 2026-11-22 · AI access · `packages/db` · migration `ai_access`: enums `AiAccess`, `AiSource`; `Installation.{aiAccess, anthropicKeyEnc, anthropicKeyHint, aiAccessUpdatedAt, aiAccessUpdatedBy}`; `Review.aiSource`, `ReviewCost.aiSource` (null = revo); `SkipReason` + `free_limit`, `free_paused`; `reviewCostEntry({ aiSource })`; `free-tier.ts` `accountFreeReviewsUsed` (ledger rows paid by Revo this UTC month: every billed run, "Review again" and billed failed attempts included), `freeTierSpendUsd(prisma, owners)` (global, owners excluded), `freeTierUsage()` for the dashboard meter; enum parity · free tier counters.
+- 2026-11-22 · AI access · `packages/github` · `skippedCheck(reason, { accountLogin, resetsAt })` texts for the free skips, `SkipDetail`; `REEVALUATED_SKIP_REASONS` + `free_limit`/`free_paused` (a new month or an own key lifts them); `SummaryInput.paidBy` (footer "on Revo's free tier (3 of 20 reviews this month)") · neutral checks that say what to do.
+- 2026-11-22 · AI access · `apps/worker` · `review/ai-access.ts` `chooseEngine()` (own key → `accountEngine(key)`, aiSource `account`, a key that cannot be decrypted or a 401 fails at once with "The Anthropic API key saved for <login> was refused…"; subscription only with `REVO_ALLOW_CLAUDE_SUBSCRIPTION` and `ReviewDeps.subscriptionEngine`, else free with a warning; owners: host key, no limits; free: per-account and global limits → `free_limit`/`free_paused` skips, Opus → Sonnet + note); `ReviewDeps.{accountEngine, subscriptionEngine?, ai}`; `engines.ts` `createAccountEngines` (cached by key hash; fake with `REVO_ENGINE=fake`); env knobs + `TOKEN_ENCRYPTION_KEY`/`AUTH_SECRET`; aiSource stored on Review and ReviewCost · per-account payer. An explicit own key or subscription wins over owner status.
+- 2026-11-22 · AI access · `apps/web` (`server/security/crypto.ts` uses the shared secret box; `server/config/env.ts` + the AI knobs and `CONTACT_EMAIL`; `review-state.tsx` free skip texts), `docker-compose.yml` + `deploy/ec2/docker-compose.yml` (worker keeps `TOKEN_ENCRYPTION_KEY`/`AUTH_SECRET`, still no `GITHUB_CLIENT_SECRET`), `.env.example`, `deploy/ec2/{.env.example,README.md}` · same key on both sides, documented knobs.
+- 2026-11-22 · AI access (subscription engine) · `packages/review` (`engines/claude-subscription.ts`, exported from `@revo/review/node`; `SUBSCRIPTION_ERROR_MESSAGES`; `review:local --engine claude-subscription`; dependency `@anthropic-ai/claude-agent-sdk`), `apps/worker` (`engines.ts` `createSubscriptionEngine` (fake with `REVO_ENGINE=fake`), passed as `subscriptionEngine` when `REVO_ALLOW_CLAUDE_SUBSCRIPTION` is on; `describeFailure(…, { subscription })`; the SDK is a devDependency and tsup `external`, so it is loaded from node_modules and left out of the Docker image), `.env.example`, `deploy/ec2/README.md` · accounts set to the Claude subscription review through Claude Code on the owner's machine.
+- 2026-11-22 · AI access (web) · `packages/shared` (`effectiveAiAccess`, `EffectiveAiAccess`, `EFFECTIVE_AI_ACCESS_LABELS`, `modelAllowedFor`, `maskedKey`; `ReviewDto.aiSource`), `apps/web/src/server/config/env.ts` (`ANTHROPIC_BASE_URL`, honoured like the GitHub overrides; the localhost override now allows one path segment), `server/http/rate-limit.ts` (`RATE_LIMITS.anthropicKey`), `lib/query-keys.ts` (`qk.accounts()`), `proxy.ts` (`/privacy`, `/terms` public), `public/robots.txt`, `apps/web/package.json` (dep `@anthropic-ai/sdk`), `tools/mock-github` (`GET /anthropic/v1/models`, `MOCK_VALID_KEY_PREFIX`) · accounts choose who pays in the dashboard; keys checked with Anthropic before saving; legal pages for the public launch.
+- 2026-11-22 · AI access (web) · `.env.example`, `deploy/ec2/README.md` · key check needs outbound HTTPS from web, Admin-only changes, `CONTACT_EMAIL`, making the GitHub App public, offline key checks with the mock.
+- 2026-11-22 · AI access (review fixes) · `packages/db` (migration `ai_access_ledger`: `Installation.accountGithubId`, `FreeTierUsage` ledger with no foreign keys + backfill of last and this month; `free-tier.ts` counts the ledger by GitHub account plus in-flight free runs, `freeTierUsageEntry`, `lockFreeTierAccount`, `pruneFreeTierUsage`; seed wipes and fills it; fixture `DEMO_INSTALLATION.accountGithubId`), `packages/github` (`AccountSchema.id`), `apps/web` (`upsertInstallation` stores `accountGithubId`; `freeTierState(account)`; `#ai-access` on an always-rendered wrapper + scroll after load; subscription terms note beside the option; `paidBy` helper; privacy page lists PR description, avatar, feedback note and the kept usage counter), `apps/worker` (engine choice + `markRunning` in one locked transaction, ledger rows in `saveDone`/`markAttemptFailed`, `markSkipped` clears `aiSource`, ledger prune), `tools/mock-github` (demo account id from the fixture) · uninstalling, removing or moving a repo no longer resets the free quota or the global cap; parallel jobs cannot pass the quota.

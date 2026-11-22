@@ -1,4 +1,6 @@
 User-agent: *
-# Only the landing page is public; the dashboard needs a sign-in.
+# Only the landing page and the legal pages are public; the dashboard needs a sign-in.
 Allow: /$
+Allow: /privacy$
+Allow: /terms$
 Disallow: /

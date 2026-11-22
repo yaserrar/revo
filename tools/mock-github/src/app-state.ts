@@ -132,7 +132,11 @@ export class MockAppState {
   constructor(readonly baseUrl: string) {
     this.addInstallation({
       id: DEMO_INSTALLATION.githubId,
-      account: { id: 71_000_001, login: DEMO_INSTALLATION.accountLogin, type: DEMO_INSTALLATION.accountType },
+      account: {
+        id: DEMO_INSTALLATION.accountGithubId,
+        login: DEMO_INSTALLATION.accountLogin,
+        type: DEMO_INSTALLATION.accountType,
+      },
       repos: DEMO_REPOS.map((r) => ({ id: r.githubId, name: r.name, private: r.private })),
     });
     for (const r of DEMO_REPOS) this.setBaseFiles(r.githubId, DEMO_BASE_FILES);

@@ -1,6 +1,6 @@
 'use client';
 
-import { Add, Lock, Setting2 } from 'iconsax-react';
+import { Add, Key, Lock, Setting2 } from 'iconsax-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { modelName } from '@revo/shared';
@@ -115,14 +115,22 @@ export function ReposView({ installUrl }: { installUrl: string | null }) {
           ))}
           <MetaItem label="Repos">{data.items.length}</MetaItem>
         </div>
-        {installUrl ? (
-          <Button asChild variant="outline" size="sm">
-            <a href={installUrl}>
-              <Add className="size-4" />
-              Add repos on GitHub
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="ghost" size="sm">
+            <a href="#ai-access">
+              <Key className="size-4" />
+              AI access
             </a>
           </Button>
-        ) : null}
+          {installUrl ? (
+            <Button asChild variant="outline" size="sm">
+              <a href={installUrl}>
+                <Add className="size-4" />
+                Add repos on GitHub
+              </a>
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <BudgetBanner budgets={reached} />

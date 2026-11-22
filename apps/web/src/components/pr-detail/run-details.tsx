@@ -1,5 +1,6 @@
 import { modelName, type ReviewDto } from '@revo/shared';
 import { formatDateTime, formatDuration, formatTokens, formatUsd, shortSha } from '~/lib/format';
+import { paidBy } from './paid-by';
 
 /**
  * Spec 11.4 "Run details": model, tokens, cost, duration, files. "Tokens in"
@@ -10,6 +11,7 @@ export function RunDetails({ review }: { review: ReviewDto }) {
   const promptTokens = review.inputTokens + review.cacheWriteTokens + review.cachedTokens;
   const rows: [string, string][] = [
     ['Model', modelName(review.model)],
+    ['Paid by', paidBy(review)],
     ['Commit', shortSha(review.headSha)],
     ['Trigger', review.trigger === 'manual' ? 'Review again' : 'Automatic'],
     ['Tokens in', formatTokens(promptTokens)],
@@ -28,7 +30,11 @@ export function RunDetails({ review }: { review: ReviewDto }) {
         {rows.map(([label, value]) => (
           <div
             key={label}
-            className={label === 'Model' || label === 'Started' ? 'col-span-2 min-w-0' : 'min-w-0'}
+            className={
+              label === 'Model' || label === 'Paid by' || label === 'Started'
+                ? 'col-span-2 min-w-0'
+                : 'min-w-0'
+            }
           >
             <dt className="eyebrow text-[0.625rem]">{label}</dt>
             <dd className="tabular mt-1 truncate font-mono text-[13px] text-foreground">{value}</dd>

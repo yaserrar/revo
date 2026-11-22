@@ -13,6 +13,8 @@ export async function upsertInstallation(installation: InstallationInput) {
     accountLogin: installation.account.login,
     accountType: accountType(installation.account.type),
     accountAvatarUrl: installation.account.avatar_url ?? null,
+    // Stable across reinstalls: the free-tier count follows the account, not the installation.
+    ...(installation.account.id === undefined ? {} : { accountGithubId: BigInt(installation.account.id) }),
     suspendedAt: installation.suspended_at ? new Date(installation.suspended_at) : null,
   };
   return prisma.installation.upsert({

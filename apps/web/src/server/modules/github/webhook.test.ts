@@ -145,6 +145,11 @@ describe('POST /api/github/webhook', () => {
 
   it('saves the installation and its repos, enabled with default settings', async () => {
     expect((await install()).status).toBe(200);
+    // The account's own id is kept: the free tier counts per account, across reinstalls.
+    const installation = await prisma.installation.findUniqueOrThrow({
+      where: { githubId: BigInt(installationId) },
+    });
+    expect(installation.accountGithubId).toBe(BigInt(installationId));
     const repos = await prisma.repo.findMany({
       where: { installation: { githubId: BigInt(installationId) } },
       include: { settings: true },

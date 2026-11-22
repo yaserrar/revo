@@ -1,4 +1,4 @@
-import type { InstallationDto, ModelId, RepoDto, RepoSettingsDto } from '@revo/shared';
+import type { EffectiveAiAccess, InstallationDto, ModelId, RepoDto, RepoSettingsDto } from '@revo/shared';
 
 /** Spend of one repo this UTC month against its monthly budget. */
 export type BudgetDto = {
@@ -38,4 +38,6 @@ export type RepoSettingsPageDto = {
   builtInIgnoreGlobs: string[];
   /** The user may change these settings (Maintain or Admin on GitHub). */
   canEdit: boolean;
+  /** Who pays for this repo's reviews: on the free tier, only `freeTierModels` run. */
+  aiAccess: { accountLogin: string; effective: EffectiveAiAccess; freeTierModels: ModelId[] };
 };

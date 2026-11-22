@@ -3,10 +3,13 @@ import { Prisma } from '@revo/db';
 import {
   canRequestReview,
   DEFAULT_REPO_SETTINGS,
+  FREE_PAUSED_TEXT,
+  freeLimitText,
   isStaleInFlight,
   pageMeta,
   type Paginated,
   type PullRequestListQuery,
+  startOfNextUtcMonth,
   type PullRequestSummaryDto,
 } from '@revo/shared';
 import { formatUsd } from '~/lib/format';
@@ -23,6 +26,7 @@ import { queueReview } from '../github/review-start.service';
 import { presentPullRequestSummary } from '../../presenters/pull-request.presenter';
 import { repoUrl } from '../../presenters/repo.presenter';
 import { presentReview } from '../../presenters/review.presenter';
+import { accountAccess, freeTierState } from '../accounts/accounts.service';
 import { budgetFor } from '../repos/budget';
 
 /** `%` and `_` match literally in a search. */
@@ -91,8 +95,12 @@ const SUMMARY_INCLUDE = {
   },
 } satisfies Prisma.PullRequestInclude;
 
-function blockReason(block: ReviewAgainBlock, budget: BudgetDto): string | null {
+function blockReason(block: ReviewAgainBlock, budget: BudgetDto, pr: LoadedPullRequest): string | null {
   switch (block) {
+    case 'free_limit':
+      return freeLimitText(pr.repo.installation.accountLogin, startOfNextUtcMonth());
+    case 'free_paused':
+      return FREE_PAUSED_TEXT;
     case 'budget':
       return `This repo reached its monthly budget of ${formatUsd(budget.budgetUsd)}.`;
     case 'disabled':
@@ -137,7 +145,24 @@ async function permissionOn(repoId: string, userId: string) {
   return row?.permission ?? 'read';
 }
 
-function reviewAgainBlock(pr: LoadedPullRequest, budget: BudgetDto, canReview: boolean): ReviewAgainBlock {
+/**
+ * Free-tier accounts: a manual review counts like any other, so it is refused
+ * once the account used its free reviews or the free tier is paused (the
+ * worker would skip it the same way).
+ */
+async function freeTierBlock(pr: LoadedPullRequest): Promise<'free_limit' | 'free_paused' | null> {
+  if (accountAccess(pr.repo.installation) !== 'free') return null;
+  const free = await freeTierState(pr.repo.installation);
+  if (free.used >= free.limit) return 'free_limit';
+  return free.paused ? 'free_paused' : null;
+}
+
+function reviewAgainBlock(
+  pr: LoadedPullRequest,
+  budget: BudgetDto,
+  canReview: boolean,
+  free: 'free_limit' | 'free_paused' | null,
+): ReviewAgainBlock {
   if (!canReview) return 'no_permission';
   // A queued or running review that has not moved for a long time lost its job: allow a new one.
   const latest = pr.reviews[0];
@@ -147,7 +172,7 @@ function reviewAgainBlock(pr: LoadedPullRequest, budget: BudgetDto, canReview: b
   if (!pr.repo.enabled) return 'disabled';
   if (pr.state !== 'open') return 'not_open';
   if (budget.reached) return 'budget';
-  return null;
+  return free;
 }
 
 export const pullRequestsService = {
@@ -196,7 +221,12 @@ export const pullRequestsService = {
   async detail(id: string, repoIds: string[], userId: string): Promise<PullRequestDetailDto> {
     const pr = await loadPullRequest(id, repoIds);
     const budget = await budgetFor(pr.repo);
-    const block = reviewAgainBlock(pr, budget, canRequestReview(await permissionOn(pr.repoId, userId)));
+    const block = reviewAgainBlock(
+      pr,
+      budget,
+      canRequestReview(await permissionOn(pr.repoId, userId)),
+      await freeTierBlock(pr),
+    );
     return {
       ...presentPullRequestSummary(pr),
       body: pr.body,
@@ -209,7 +239,7 @@ export const pullRequestsService = {
       },
       reviews: pr.reviews.map(presentReview),
       budget,
-      reviewAgain: { allowed: block === null, block, reason: blockReason(block, budget) },
+      reviewAgain: { allowed: block === null, block, reason: blockReason(block, budget, pr) },
     };
   },
 
@@ -221,10 +251,15 @@ export const pullRequestsService = {
   async reviewAgain(id: string, repoIds: string[], userId: string): Promise<ReviewAgainResultDto> {
     const pr = await loadPullRequest(id, repoIds);
     const budget = await budgetFor(pr.repo);
-    const block = reviewAgainBlock(pr, budget, canRequestReview(await permissionOn(pr.repoId, userId)));
-    if (block === 'no_permission') throw forbidden(blockReason(block, budget) ?? undefined);
+    const block = reviewAgainBlock(
+      pr,
+      budget,
+      canRequestReview(await permissionOn(pr.repoId, userId)),
+      await freeTierBlock(pr),
+    );
+    if (block === 'no_permission') throw forbidden(blockReason(block, budget, pr) ?? undefined);
     if (block === 'budget') throw budgetReached({ spentUsd: budget.spentUsd, budgetUsd: budget.budgetUsd });
-    if (block) throw conflict(blockReason(block, budget) ?? 'This pull request cannot be reviewed now.');
+    if (block) throw conflict(blockReason(block, budget, pr) ?? 'This pull request cannot be reviewed now.');
     if (!pr.headSha) throw conflict('The head commit of this pull request is not known yet.');
 
     // The Review row turns "queued" and the "Revo: reviewing…" check shows at

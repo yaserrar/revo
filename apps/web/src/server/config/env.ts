@@ -1,6 +1,11 @@
 import 'server-only';
 import { z } from 'zod';
-import { DEFAULT_REVIEW_DEBOUNCE_SECONDS } from '@revo/shared';
+import {
+  DEFAULT_FREE_MONTHLY_CAP_USD,
+  DEFAULT_FREE_REVIEWS_PER_MONTH,
+  DEFAULT_REVIEW_DEBOUNCE_SECONDS,
+  parseOwnerAccounts,
+} from '@revo/shared';
 
 const optional = z
   .string()
@@ -11,6 +16,10 @@ const flag = z
   .string()
   .optional()
   .transform((v) => v === '1' || v === 'true');
+
+/** A number, or the default when unset or blank (compose passes '' for unset values). */
+const numberOr = (fallback: number) =>
+  optional.transform((v) => (v === undefined ? fallback : Number(v))).pipe(z.number().min(0));
 
 const envSchema = z
   .object({
@@ -37,11 +46,23 @@ const envSchema = z
     /** Non-production only: a mock GitHub for tests (github.com / api.github.com otherwise). */
     GITHUB_OAUTH_BASE_URL: optional,
     GITHUB_API_URL: optional,
+    /** Same rule as GITHUB_*_URL: a stand-in Claude API (the mock GitHub's /anthropic) for checking keys in tests. */
+    ANTHROPIC_BASE_URL: optional,
     REVIEW_DEBOUNCE_SECONDS: z.coerce.number().int().min(0).default(DEFAULT_REVIEW_DEBOUNCE_SECONDS),
     /** Serve /dev/kit in a production build (screenshots of the design system). */
     REVO_ENABLE_DEV_KIT: flag,
     /** Production build under test: honour GITHUB_*_URL overrides that point at localhost. */
     REVO_TEST_MODE: flag,
+    /** Free tier (same names and defaults as the worker): reviews per account per UTC month. */
+    FREE_REVIEWS_PER_MONTH: numberOr(DEFAULT_FREE_REVIEWS_PER_MONTH).pipe(z.number().int()),
+    /** Free tier: Revo's total free-tier spend per UTC month across every account, in USD. */
+    FREE_MONTHLY_CAP_USD: numberOr(DEFAULT_FREE_MONTHLY_CAP_USD),
+    /** Comma-separated GitHub logins that use Revo's key with no free-tier limits (lowercased list). */
+    REVO_OWNER_ACCOUNTS: optional.transform(parseOwnerAccounts),
+    /** Self-hosted, single owner: offer the Claude subscription logged in on this machine. */
+    REVO_ALLOW_CLAUDE_SUBSCRIPTION: flag,
+    /** Contact address on the legal pages (GitHub issues of the source repo otherwise). */
+    CONTACT_EMAIL: optional,
   })
   .superRefine((v, ctx) => {
     // Secrets are checked when the server starts, not during `next build` (images are built without them).
@@ -59,13 +80,15 @@ const parsed = envSchema.parse(process.env);
 const isProduction = parsed.NODE_ENV === 'production';
 
 /**
- * GitHub endpoint overrides (a mock GitHub) are honoured outside production,
- * and in a production build only with REVO_TEST_MODE=1 and a localhost URL.
+ * GitHub and Anthropic endpoint overrides (the mock GitHub, which also stands
+ * in for the Claude API under /anthropic) are honoured outside production, and
+ * in a production build only with REVO_TEST_MODE=1 and a localhost URL (one
+ * path segment at most).
  */
 function githubOverride(value: string | undefined): string | undefined {
   if (!value) return undefined;
   if (!isProduction) return value.replace(/\/$/, '');
-  const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(value);
+  const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/[\w-]+)?\/?$/.test(value);
   return parsed.REVO_TEST_MODE && local ? value.replace(/\/$/, '') : undefined;
 }
 
@@ -73,6 +96,8 @@ export const env = {
   ...parsed,
   GITHUB_OAUTH_BASE_URL: githubOverride(parsed.GITHUB_OAUTH_BASE_URL) ?? 'https://github.com',
   GITHUB_API_URL: githubOverride(parsed.GITHUB_API_URL) ?? 'https://api.github.com',
+  /** Where saved Anthropic API keys are checked (models.list). */
+  ANTHROPIC_BASE_URL: githubOverride(parsed.ANTHROPIC_BASE_URL) ?? 'https://api.anthropic.com',
 };
 
 export const githubSignInEnabled = Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET);
