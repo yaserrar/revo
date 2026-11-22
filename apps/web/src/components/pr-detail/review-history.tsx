@@ -19,7 +19,11 @@ export function ReviewHistory({
   const now = new Date();
   return (
     <ol className="relative space-y-1">
-      <span aria-hidden="true" className="absolute top-4 bottom-4 left-[1.0625rem] w-px bg-border" />
+      {/* Through the dots' centres: button pl-2 (0.5rem) + dot ml (0.625rem) + half the dot (0.4375rem). */}
+      <span
+        aria-hidden="true"
+        className="absolute top-4 bottom-4 left-[calc(1.5625rem-0.5px)] w-px bg-border"
+      />
       {reviews.map((r, i) => {
         const older = reviews.slice(i + 1).find((x) => x.status === 'done' && x.score !== null);
         const selected = r.id === selectedId;
