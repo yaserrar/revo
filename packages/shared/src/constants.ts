@@ -146,6 +146,14 @@ export type ReviewTrigger = (typeof REVIEW_TRIGGERS)[number];
 export const FEEDBACK_OUTCOMES = ['useful', 'wrong'] as const;
 export type FeedbackOutcome = (typeof FEEDBACK_OUTCOMES)[number];
 
+/** Where feedback comes from: the dashboard, a 👍/👎 on GitHub, or a later push that fixed the code. */
+export const FEEDBACK_SOURCES = ['dashboard', 'github', 'fixed'] as const;
+export type FeedbackSource = (typeof FEEDBACK_SOURCES)[number];
+
+/** What happened to a finding after its review. */
+export const FINDING_RESOLUTIONS = ['fixed', 'dismissed'] as const;
+export type FindingResolution = (typeof FINDING_RESOLUTIONS)[number];
+
 export const ACCOUNT_TYPES = ['User', 'Organization'] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
 

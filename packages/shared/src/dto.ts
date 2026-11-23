@@ -8,6 +8,8 @@ import type {
   AccountType,
   Category,
   FeedbackOutcome,
+  FeedbackSource,
+  FindingResolution,
   PrState,
   ReviewStatus,
   ReviewTrigger,
@@ -59,6 +61,7 @@ export type SeverityCounts = Record<Severity, number>;
 export type FeedbackDto = {
   id: string;
   outcome: FeedbackOutcome;
+  source: FeedbackSource;
   note: string | null;
   user: Pick<UserDto, 'login' | 'avatarUrl'>;
   createdAt: string;
@@ -90,7 +93,18 @@ export type FindingDto = {
   posted: boolean;
   /** The signed-in user's feedback, if any. */
   myFeedback: FeedbackDto | null;
+  /** Every source: dashboard buttons, 👍/👎 on GitHub, and a later push that fixed the code (useful). */
   feedbackCounts: Record<FeedbackOutcome, number>;
+  /** How many of those came from GitHub reactions and from fixes. */
+  feedbackFrom: { github: number; fixed: number };
+  /** Exact new code for the flagged lines: the one-click suggested change on GitHub. */
+  replacement: string | null;
+  /** Head commit of the earlier review that first found it, when it is still open from then. */
+  openSince: string | null;
+  /** What happened after this review: a later push fixed it, or a person dismissed it. */
+  resolution: FindingResolution | null;
+  /** The commit whose review saw the fix. */
+  resolvedSha: string | null;
 };
 
 export type ReviewDto = {

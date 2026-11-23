@@ -4,6 +4,11 @@ import { CATEGORIES, SEVERITIES } from '../constants';
 export const CategorySchema = z.enum(CATEGORIES);
 export const SeveritySchema = z.enum(SEVERITIES);
 
+/** Longest replacement code kept for a one-click fix (characters). */
+export const REPLACEMENT_MAX_CHARS = 3000;
+/** Most lines a one-click fix may replace. */
+export const REPLACEMENT_MAX_LINES = 20;
+
 /**
  * A problem reported by pass 1 (spec section 8). This is the shape the model
  * fills through its tool; lines refer to the NEW version of the file.
@@ -22,6 +27,11 @@ export const FindingSchema = z
     /** How to fix it, with code if short. */
     suggestion: z.string().max(800),
     confidence: z.number().min(0).max(1),
+    /**
+     * The exact new code for lines lineStart..lineEnd, when the fix is a local
+     * edit of those lines: posted as a GitHub suggested change (one click to apply).
+     */
+    replacement: z.string().max(REPLACEMENT_MAX_CHARS).optional(),
   })
   .refine((f) => f.lineEnd >= f.lineStart, { message: 'lineEnd must be >= lineStart', path: ['lineEnd'] });
 export type Finding = z.infer<typeof FindingSchema>;
@@ -40,6 +50,8 @@ export const VerificationSchema = z.object({
   reason: z.string().max(400),
   /** Only when pass 2 lowers the severity. */
   severity: SeveritySchema.optional(),
+  /** Pass 2's check of the finding's `replacement`: anything but true drops it. */
+  replacementSafe: z.boolean().optional(),
 });
 export type Verification = z.infer<typeof VerificationSchema>;
 

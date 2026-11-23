@@ -67,6 +67,19 @@ enum FeedbackOutcome {
   wrong
 }
 
+/// Where a feedback row comes from: a dashboard button, a 👍/👎 on Revo's inline comment, or a later push that fixed the code.
+enum FeedbackSource {
+  dashboard
+  github
+  fixed
+}
+
+/// What happened to a finding after its review: the code was fixed, or a person dismissed it (resolved the thread unfixed, or marked it wrong).
+enum FindingResolution {
+  fixed
+  dismissed
+}
+
 /// Who pays for Claude for an account (values of AI_ACCESS in @revo/shared).
 enum AiAccess {
   free
@@ -221,6 +234,8 @@ model PullRequest {
   mergedAt         DateTime?
   closedAt         DateTime?
   lastReviewedAt   DateTime?
+  /// Last time reactions and resolved threads of Revo's inline comments were read from GitHub.
+  feedbackSyncedAt DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -307,6 +322,15 @@ model Finding {
   rejectReason     String?
   posted           Boolean   @default(false)
   githubCommentId  BigInt?
+  /// Exact new code for lines lineStart..lineEnd: the one-click suggested change on GitHub.
+  replacement      String?
+  /// Head commit of the earlier review that first found it, when it is still open from then.
+  openSince        String?
+  /// Set on an earlier review's finding when a later push fixed it or a person dismissed it.
+  resolution       FindingResolution?
+  resolvedAt       DateTime?
+  /// The commit whose review saw the fix.
+  resolvedSha      String?
   createdAt        DateTime  @default(now())
 
   review    Review     @relation(fields: [reviewId], references: [id], onDelete: Cascade)
@@ -314,21 +338,28 @@ model Finding {
 
   @@index([reviewId, verified])
   @@index([file])
+  @@index([githubCommentId])
 }
 
 model Feedback {
-  id        String          @id @default(cuid())
-  findingId String
-  userId    String
-  outcome   FeedbackOutcome
-  note      String?
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  id           String          @id @default(cuid())
+  findingId    String
+  /// The dashboard user (source dashboard); null for GitHub reactions and fixes.
+  userId       String?
+  outcome      FeedbackOutcome
+  note         String?
+  source       FeedbackSource  @default(dashboard)
+  /// Who reacted on GitHub (source github).
+  githubUserId BigInt?
+  githubLogin  String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
 
   finding Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([findingId, userId])
+  @@unique([findingId, githubUserId])
   @@index([createdAt])
 }
 
