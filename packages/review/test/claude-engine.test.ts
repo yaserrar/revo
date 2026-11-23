@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_REPO_SETTINGS, type Finding } from '@revo/shared';
+import { DEFAULT_REPO_SETTINGS, REPLACEMENT_MAX_CHARS, type Finding } from '@revo/shared';
 import { buildReviewContext } from '../src/context';
 import { createClaudeEngine, responseUsage } from '../src/engines/claude';
 import { parseFindingsInput, parseVerificationsInput, REPORT_TOOLS } from '../src/engines/tool-schemas';
@@ -111,6 +111,26 @@ describe('report tools', () => {
     expect(result.value[0]!.title).toHaveLength(100);
   });
 
+  it('keeps a replacement that fits, whole lines without the final newline, and nothing else', () => {
+    const parse = (replacement: unknown) => {
+      const result = parseFindingsInput({ findings: [{ ...modelFinding, replacement }] });
+      if (!result.ok) throw new Error(result.problem);
+      return result.value[0]!.replacement;
+    };
+    expect(parse('  return a + b;\r\n')).toBe('  return a + b;');
+    expect(parse('')).toBe('');
+    expect(parse(null)).toBeUndefined();
+    expect(parse(undefined)).toBeUndefined();
+    // Too long is dropped, never cut: half a fix is worse than none.
+    expect(parse('x'.repeat(REPLACEMENT_MAX_CHARS + 1))).toBeUndefined();
+  });
+
+  it('asks for the one-click fix fields in the tools (required, nullable)', () => {
+    const json = JSON.stringify(REPORT_TOOLS);
+    expect(json).toContain('"replacement"');
+    expect(json).toContain('"replacementSafe"');
+  });
+
   it('rejects findings that stay invalid after normalising', () => {
     const result = parseFindingsInput({ findings: [{ ...modelFinding, title: '  ' }] });
     expect(result).toMatchObject({ ok: false });
@@ -135,6 +155,17 @@ describe('report tools', () => {
         { index: 1, outcome: 'rejected', reason: 'Line 2 adds one.' },
       ],
     });
+    expect(
+      parseVerificationsInput(
+        {
+          verifications: [
+            { ...v(0), replacementSafe: true },
+            { ...v(1), replacementSafe: null },
+          ],
+        },
+        2,
+      ),
+    ).toMatchObject({ ok: true, value: [{ index: 0, replacementSafe: true }, { index: 1 }] });
     expect(parseVerificationsInput({ verifications: [v(0)] }, 2)).toEqual({
       ok: false,
       problem: 'there is no answer for index 1',

@@ -11,6 +11,7 @@ import { z } from 'zod';
 import {
   CategorySchema,
   FindingSchema,
+  REPLACEMENT_MAX_CHARS,
   REVIEW_LIMITS,
   SeveritySchema,
   VERIFICATION_OUTCOMES,
@@ -40,6 +41,12 @@ const ModelFindingSchema = z.object({
   suggestion: z
     .string()
     .describe('How to fix it, with a short code example when it helps. Under 800 characters.'),
+  replacement: z
+    .string()
+    .nullable()
+    .describe(
+      'The exact new code for lines lineStart..lineEnd (all of them, with their indentation), when the fix is a local edit of those lines; null otherwise.',
+    ),
   severity: SeveritySchema,
   confidence: z.number().describe('0 to 1: how sure you are this is a real defect.'),
 });
@@ -57,10 +64,27 @@ const ModelVerificationSchema = z.object({
   severity: SeveritySchema.nullable().describe(
     'A LOWER severity when a confirmed finding is overstated; null to keep it.',
   ),
+  replacementSafe: z
+    .boolean()
+    .nullable()
+    .describe(
+      'For a finding with a replacement: true only if applying it exactly fixes the problem and breaks nothing; null when there is none.',
+    ),
 });
 
 const ModelVerificationsSchema = z.object({
   verifications: z.array(ModelVerificationSchema).describe('Exactly one answer per finding index.'),
+});
+
+/**
+ * What the parsers accept: the tool schemas above, with the one-click fix
+ * fields optional (an answer without them simply has no one-click fix).
+ */
+const ParsedFindingsSchema = z.object({
+  findings: z.array(ModelFindingSchema.partial({ replacement: true })),
+});
+const ParsedVerificationsSchema = z.object({
+  verifications: z.array(ModelVerificationSchema.partial({ replacementSafe: true })),
 });
 
 /** Drops the safe-integer bounds Zod adds to every `.int()`: they say nothing to the model. */
@@ -118,9 +142,20 @@ const issues = (error: z.ZodError) =>
     .map((i) => `${i.path.join('.') || 'input'}: ${i.message}`)
     .join('; ');
 
+/**
+ * A replacement is kept only when it fits (never cut: half a fix is worse than
+ * none). Line endings are normalised and one final newline is dropped, since
+ * it replaces whole lines.
+ */
+function replacementField(value: string | null | undefined): { replacement?: string } {
+  if (typeof value !== 'string') return {};
+  const code = value.replace(/\r\n?/g, '\n').replace(/\n$/, '');
+  return code.length <= REPLACEMENT_MAX_CHARS ? { replacement: code } : {};
+}
+
 /** Normalises and validates pass 1's tool input. */
 export function parseFindingsInput(input: unknown): ParseResult<Finding[]> {
-  const raw = ModelFindingsSchema.safeParse(input);
+  const raw = ParsedFindingsSchema.safeParse(input);
   if (!raw.success)
     return { ok: false, problem: `the input does not match the schema (${issues(raw.error)})` };
   const findings: Finding[] = [];
@@ -136,6 +171,7 @@ export function parseFindingsInput(input: unknown): ParseResult<Finding[]> {
       explanation: cut(f.explanation, 800),
       suggestion: cut(f.suggestion, 800),
       confidence: Math.min(1, Math.max(0, f.confidence)),
+      ...replacementField(f.replacement),
     };
     const parsed = FindingSchema.safeParse(candidate);
     if (!parsed.success) return { ok: false, problem: `finding ${i} is invalid (${issues(parsed.error)})` };
@@ -146,7 +182,7 @@ export function parseFindingsInput(input: unknown): ParseResult<Finding[]> {
 
 /** Normalises and validates pass 2's tool input: one answer per finding index. */
 export function parseVerificationsInput(input: unknown, findingCount: number): ParseResult<Verification[]> {
-  const raw = ModelVerificationsSchema.safeParse(input);
+  const raw = ParsedVerificationsSchema.safeParse(input);
   if (!raw.success)
     return { ok: false, problem: `the input does not match the schema (${issues(raw.error)})` };
   const byIndex = new Map<number, Verification>();
@@ -157,6 +193,7 @@ export function parseVerificationsInput(input: unknown, findingCount: number): P
       outcome: v.outcome,
       reason: cut(v.reason, 400),
       ...(v.severity ? { severity: v.severity } : {}),
+      ...(typeof v.replacementSafe === 'boolean' ? { replacementSafe: v.replacementSafe } : {}),
     });
     if (!parsed.success)
       return { ok: false, problem: `answer ${v.index} is invalid (${issues(parsed.error)})` };

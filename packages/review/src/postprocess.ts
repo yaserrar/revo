@@ -1,6 +1,7 @@
 /** After pass 2 (spec 7.6): keep confirmed, remove duplicates, sort, cap. */
 import {
   rangesOverlap,
+  REPLACEMENT_MAX_LINES,
   SEVERITY_RANK,
   type Category,
   type Finding,
@@ -52,8 +53,11 @@ export function applyVerifications(
       };
     const lowered =
       v.severity && SEVERITY_RANK[v.severity] > SEVERITY_RANK[finding.severity] ? v.severity : null;
+    // A one-click fix is offered only when pass 2 vouched for it.
+    const { replacement, ...rest } = finding;
     return {
-      ...finding,
+      ...rest,
+      ...(replacement !== undefined && v.replacementSafe === true ? { replacement } : {}),
       severity: lowered ?? finding.severity,
       originalSeverity: lowered ? finding.severity : null,
       confirmed: v.outcome === 'confirmed',
@@ -79,6 +83,55 @@ export function dedupeFindings<T extends Finding>(findings: readonly T[]): T[] {
     if (!dup) kept.push(f);
   }
   return kept;
+}
+
+/**
+ * A replacement GitHub can apply: the finding's lines exist in the new file,
+ * there are at most REPLACEMENT_MAX_LINES of them, and the code really changes.
+ * `newContent` undefined (not known) keeps nothing: the lines cannot be checked.
+ */
+export function usableReplacement(
+  finding: Pick<Finding, 'lineStart' | 'lineEnd' | 'replacement'>,
+  newContent: string | undefined,
+): string | undefined {
+  const { replacement, lineStart, lineEnd } = finding;
+  if (replacement === undefined || newContent === undefined) return undefined;
+  if (lineEnd - lineStart + 1 > REPLACEMENT_MAX_LINES) return undefined;
+  const lines = newContent.split('\n');
+  if (lineEnd > lines.length) return undefined;
+  const original = lines.slice(lineStart - 1, lineEnd);
+  const code = reindent(replacement, original);
+  if (code === undefined) return undefined;
+  return original.join('\n').replace(/\s+$/, '') === code.replace(/\s+$/, '') ? undefined : code;
+}
+
+const indentOf = (line: string) => /^[ \t]*/.exec(line)![0];
+
+/**
+ * The replacement shifted so its first code line has the indentation of the
+ * first line it replaces (models often add or drop the indent of the
+ * numbered context). Every line moves by the same amount; when that is not
+ * possible (tabs against spaces, a line less indented than the shift) the
+ * replacement is dropped: a one-click change must not break the layout.
+ */
+export function reindent(replacement: string, original: readonly string[]): string | undefined {
+  const lines = replacement.split('\n');
+  const want = original.find((l) => l.trim() !== '');
+  const have = lines.find((l) => l.trim() !== '');
+  if (want === undefined || have === undefined) return replacement;
+  const target = indentOf(want);
+  const current = indentOf(have);
+  if (target === current) return replacement;
+  if (current.startsWith(target)) {
+    const extra = current.slice(target.length);
+    if (!lines.every((l) => l.trim() === '' || l.startsWith(extra))) return undefined;
+    return lines.map((l) => (l.trim() === '' ? l : l.slice(extra.length))).join('\n');
+  }
+  if (target.startsWith(current)) {
+    const missing = target.slice(current.length);
+    return lines.map((l) => (l.trim() === '' ? l : missing + l)).join('\n');
+  }
+  return undefined;
 }
 
 /** Confirmed findings, deduplicated, sorted and capped. */

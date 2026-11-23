@@ -117,6 +117,11 @@ export type ReviewedFinding = Finding & {
   snippet: string;
   /** Line number of the first snippet line. */
   snippetStartLine: number;
+  /**
+   * Head commit of an earlier review of the PR that already found it (still
+   * open since then); absent for a problem first found by this review.
+   */
+  openSince?: string;
 };
 
 /** `size_limit`: over the line or file limits; `token_budget`: did not fit in the tokens of a pass. */

@@ -21,6 +21,8 @@ type Rule = {
   suggestion: string;
   /** Fake pass 2 rejects the finding with this reason. */
   rejectReason?: string;
+  /** The fixed line, when the fix is a local edit (offered as a one-click change). */
+  fix?: (text: string) => string;
   match: (added: AddedLine, file: ChangedFile) => boolean;
 };
 
@@ -102,6 +104,7 @@ const RULES: Rule[] = [
     explanation:
       'The loop condition uses `<=` with the length, so the last iteration reads an undefined element.',
     suggestion: 'Use `<` instead of `<=`, or iterate with for…of.',
+    fix: (text) => text.replace(/<=(\s*[\w.]+\.(?:length|size)\s*;)/, '<$1'),
     match: ({ text }) => /for\s*\(.*;\s*\w+\s*<=\s*[\w.]+\.(length|size)\s*;/.test(text),
   },
   {
@@ -248,6 +251,7 @@ export const fakeEngine: ReviewEngine = {
             explanation: rule.explanation,
             suggestion: rule.suggestion,
             confidence: rule.confidence,
+            ...(rule.fix ? { replacement: rule.fix(added.text) } : {}),
           });
         }
       }
@@ -273,7 +277,12 @@ export const fakeEngine: ReviewEngine = {
       if (rule?.rejectReason) return { index, outcome: 'rejected', reason: rule.rejectReason };
       if (f.confidence < 0.6)
         return { index, outcome: 'rejected', reason: 'Speculative: no concrete failing case.' };
-      return { index, outcome: 'confirmed', reason: 'The changed line shows the problem directly.' };
+      return {
+        index,
+        outcome: 'confirmed',
+        reason: 'The changed line shows the problem directly.',
+        ...(f.replacement !== undefined ? { replacementSafe: true } : {}),
+      };
     });
     // Pass 2 reads the cached context back and sends the findings to check.
     const usage: CallUsage = {

@@ -75,7 +75,7 @@ export {
 export { applyPatch, isPatchApplied, renderNumberedLines, renderNumberedPatch } from './patch';
 export { CHARS_PER_TOKEN, estimateTokens } from './tokens';
 export { SYSTEM_PROMPT } from './prompts';
-export { applyVerifications, dedupeFindings, selectConfirmed } from './postprocess';
+export { applyVerifications, dedupeFindings, selectConfirmed, usableReplacement } from './postprocess';
 export { buildSnippet, type Snippet } from './snippet';
 export { parseGitDiff } from './git-diff';
 export type {
@@ -96,3 +96,14 @@ export type {
   UsageSearch,
   VerifyResult,
 } from './types';
+export {
+  carriedReason,
+  DISMISSED_REASON,
+  flaggedLines,
+  locateFinding,
+  reconcileWithPrior,
+  type LineRange,
+  type LocatedPrior,
+  type PriorFinding,
+  type Reconciled,
+} from './track';

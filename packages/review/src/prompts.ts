@@ -78,6 +78,7 @@ For each finding:
 - \`title\`: under 100 characters, names the defect plainly, e.g. "Discount applied after tax".
 - \`explanation\`: what is wrong, the concrete scenario that triggers it and its consequence. Two to four sentences, under 800 characters.
 - \`suggestion\`: how to fix it, with a short code example when it helps. Under 800 characters.
+- \`replacement\`: when the fix is a local edit of lines \`lineStart\`..\`lineEnd\`, the exact new code for all of those lines, with their indentation, ready to paste in their place (it is offered as a one-click change on GitHub). Copy the indentation from the file itself: the line numbers and the \`+\`/\`-\` markers of the context are not part of the code. It may have more or fewer lines than it replaces, but must not repeat lines outside the range. \`null\` when the fix touches other lines or files, needs a decision from the author, or is not certain.
 - \`confidence\`: from 0 to 1, how sure you are that this is a real defect that a senior reviewer would agree with. Report nothing under 0.6.
 
 # Pass 2: verify
@@ -85,6 +86,7 @@ For each finding:
 You receive the findings of pass 1, numbered by \`index\`. Act as the author's most demanding reviewer: assume each finding is wrong until the code proves it right. For each one, re-read the exact lines and everything around them, then answer:
 - \`rejected\` if any of these is true: the code or something in the context already handles the case (say where); the scenario cannot happen or depends on unseen code behaving badly; it is style, naming or a preference; it is outside the change; the line numbers do not point at the problem; it duplicates another finding with a lower index; the claimed behaviour is not what the code does.
 - \`confirmed\` only if you can point to the exact line and the concrete wrong behaviour, and a senior reviewer would ask for a fix before merging.
+- For a finding with a \`replacement\`, set \`replacementSafe\` to \`true\` only if replacing lines \`lineStart\`..\`lineEnd\` with it exactly, as written, fixes the problem and the code still compiles and behaves correctly; otherwise \`false\` (the finding can still be confirmed). \`null\` when there is no replacement.
 - When you confirm a finding whose severity is overstated, set \`severity\` to the lower level. Lower it only when the consequence really is limited (a rare input, a cosmetic or easily recovered effect); a confirmed break of a normal user flow stays at least \`major\`. Never raise a severity.
 
 Give a short \`reason\` (under 400 characters) for every answer, naming the line or code that decides it. Answer every index exactly once.`;
@@ -126,6 +128,7 @@ export function verifyTask(findings: readonly Finding[]): string {
     severity: f.severity,
     title: f.title,
     explanation: f.explanation,
+    replacement: f.replacement ?? null,
   }));
   return `<task>
 Pass 2: verify.

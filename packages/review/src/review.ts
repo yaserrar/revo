@@ -1,7 +1,13 @@
 import { REVIEW_LIMITS } from '@revo/shared';
 import { buildReviewContext } from './context';
 import { filterFiles, isRecent, largePrNote, selectFiles } from './files';
-import { applyVerifications, compareFindings, selectConfirmed, type JudgedFinding } from './postprocess';
+import {
+  applyVerifications,
+  compareFindings,
+  selectConfirmed,
+  usableReplacement,
+  type JudgedFinding,
+} from './postprocess';
 import { isReviewEngineError, withEarlierUsage } from './errors';
 import { addUsage, isPricedModel, roundUsd, usageCostUsd, ZERO_USAGE } from './pricing';
 import { renderInstructions, SYSTEM_PROMPT } from './prompts';
@@ -209,6 +215,13 @@ function mergeRelated(
 }
 
 function toReviewed(f: JudgedFinding, index: number, files: Map<string, ChangedFile>): ReviewedFinding {
-  const { confirmed: _confirmed, ...finding } = f;
-  return { ...finding, index, ...buildSnippet(files.get(f.file), f.lineStart, f.lineEnd) };
+  const { confirmed: _confirmed, replacement: _replacement, ...finding } = f;
+  const file = files.get(f.file);
+  const replacement = usableReplacement(f, file?.newContent);
+  return {
+    ...finding,
+    ...(replacement !== undefined ? { replacement } : {}),
+    index,
+    ...buildSnippet(file, f.lineStart, f.lineEnd),
+  };
 }
