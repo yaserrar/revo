@@ -1,6 +1,7 @@
 'use client';
 
 import { parseAsString, useQueryState } from 'nuqs';
+import { useEffect, useRef } from 'react';
 import { BudgetBanner } from '~/components/dashboard/budget-banner';
 import { Panel } from '~/components/dashboard/panel';
 import { ErrorState } from '~/components/shared/error-state';
@@ -9,6 +10,7 @@ import { usePullRequest } from '~/hooks/prs';
 import { useReview } from '~/hooks/reviews';
 import { ApiError } from '~/services/api/client';
 import { FindingCard } from './finding-card';
+import { FixedFindings } from './fixed-findings';
 import { PrHeader } from './pr-header';
 import { RejectedFindings } from './rejected-findings';
 import { ReviewHistory } from './review-history';
@@ -25,6 +27,16 @@ export function PrDetailView({ id, login }: { id: string; login: string }) {
   const reviews = pr.data?.reviews ?? [];
   const selected = reviews.find((r) => r.id === reviewParam) ?? reviews[0] ?? null;
   const detail = useReview(selected?.status === 'done' ? selected.id : null);
+  // A fixed finding opens the earlier review that found it: scroll to it once that review has loaded.
+  const focusFinding = useRef<string | null>(null);
+  const loadedReview = detail.data?.review.id;
+  useEffect(() => {
+    const id = focusFinding.current;
+    const el = id ? document.getElementById(`finding-${id}`) : null;
+    if (!el) return;
+    el.scrollIntoView({ block: 'start' });
+    focusFinding.current = null;
+  }, [loadedReview]);
 
   if (pr.isPending) return <DetailSkeleton />;
   if (pr.isError) {
@@ -62,6 +74,13 @@ export function PrDetailView({ id, login }: { id: string; login: string }) {
               <Panel eyebrow="Score breakdown" title="Every point lost has a reason">
                 <ScoreBreakdown rows={d.breakdown} score={review.score ?? 0} />
               </Panel>
+              <FixedFindings
+                items={d.fixed}
+                onOpen={(rid, fid) => {
+                  focusFinding.current = fid;
+                  void setReviewParam(rid === reviews[0]?.id ? null : rid);
+                }}
+              />
               {d.findings.length === 0 ? (
                 <ReviewState review={review} />
               ) : (

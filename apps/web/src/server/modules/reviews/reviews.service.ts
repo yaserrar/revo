@@ -1,6 +1,6 @@
 import 'server-only';
 import { computeScore } from '@revo/review';
-import { DEFAULT_THRESHOLD } from '@revo/shared';
+import { CategorySchema, DEFAULT_THRESHOLD } from '@revo/shared';
 import type { ReviewDetailDto } from '~/types/review';
 import { prisma } from '../../config/prisma';
 import { notFound } from '../../http/errors';
@@ -31,6 +31,25 @@ export const reviewsService = {
       select: { score: true },
     });
 
+    const fixed = await prisma.finding.findMany({
+      where: {
+        resolution: 'fixed',
+        resolvedSha: review.headSha,
+        review: { pullRequestId: review.pullRequestId },
+      },
+      orderBy: [{ severity: 'asc' }, { index: 'asc' }],
+      select: {
+        id: true,
+        reviewId: true,
+        category: true,
+        severity: true,
+        file: true,
+        lineStart: true,
+        lineEnd: true,
+        title: true,
+      },
+    });
+
     const findings = review.findings.filter((f) => f.verified);
     const threshold = review.repo.settings?.threshold ?? DEFAULT_THRESHOLD;
     return {
@@ -40,6 +59,7 @@ export const reviewsService = {
       breakdown: computeScore(findings, threshold).breakdown,
       findings: findings.map((f) => presentFinding(f, userId)),
       rejected: review.findings.filter((f) => !f.verified).map((f) => presentFinding(f, userId)),
+      fixed: fixed.map((f) => ({ ...f, category: CategorySchema.catch('bug').parse(f.category) })),
     };
   },
 };

@@ -9,7 +9,9 @@ import { SEVERITY_CLASSES } from '~/components/revo/tone';
 import { formatLines, formatPercent } from '~/lib/format';
 import { cn } from '~/lib/utils';
 import { FeedbackBar } from './feedback-bar';
+import { FindingStatusChip } from './finding-status';
 import { Markdown } from './markdown';
+import { SuggestedChange } from './suggested-change';
 
 /** One confirmed finding: what, where, why, how to fix, the code, and feedback. */
 export function FindingCard({
@@ -47,6 +49,7 @@ export function FindingCard({
           </span>
           <SeverityChip severity={f.severity} />
           <CategoryChip category={f.category} />
+          <FindingStatusChip finding={f} />
           {f.originalSeverity && f.originalSeverity !== f.severity ? (
             <span className="font-mono text-[0.6875rem] text-muted-foreground">
               lowered from {SEVERITY_LABELS[f.originalSeverity].toLowerCase()} by verification
@@ -96,6 +99,7 @@ export function FindingCard({
               Suggested fix
             </p>
             <Markdown source={f.suggestion} lang={languageForPath(f.file)} />
+            <SuggestedChange finding={f} />
           </section>
         ) : null}
       </div>

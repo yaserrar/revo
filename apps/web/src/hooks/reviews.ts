@@ -25,6 +25,7 @@ function applyFeedback(f: FindingDto, next: FeedbackBody | null, login: string):
       ? {
           id: f.myFeedback?.id ?? 'pending',
           outcome: next.outcome,
+          source: 'dashboard',
           note: next.note ?? null,
           user: { login, avatarUrl: null },
           createdAt: f.myFeedback?.createdAt ?? new Date().toISOString(),
@@ -69,6 +70,7 @@ export const useFindingFeedback = (reviewId: string, login: string) => {
           ...f,
           myFeedback: result.myFeedback,
           feedbackCounts: result.feedbackCounts,
+          feedbackFrom: result.feedbackFrom,
         })),
       );
     },

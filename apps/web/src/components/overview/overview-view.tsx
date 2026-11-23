@@ -85,7 +85,7 @@ export function OverviewView({ installUrl }: { installUrl: string | null }) {
           icon={<Like1 className="size-[18px]" />}
           footnote={
             useful + wrong === 0
-              ? 'No feedback yet: mark findings Useful or Wrong'
+              ? 'No feedback yet: 👍/👎 on GitHub, or Useful/Wrong here'
               : `${formatInt(useful)} useful · ${formatInt(wrong)} wrong`
           }
         >

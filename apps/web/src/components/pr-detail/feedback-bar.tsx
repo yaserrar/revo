@@ -70,6 +70,11 @@ export function FeedbackBar({
   };
 
   const counts = finding.feedbackCounts;
+  const from = finding.feedbackFrom;
+  const sources = [
+    from.github > 0 ? `${from.github} from GitHub` : null,
+    from.fixed > 0 ? 'fixed in a later push' : null,
+  ].filter(Boolean);
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -120,8 +125,13 @@ export function FeedbackBar({
             {mine.note ? 'Edit note' : 'Add a note'}
           </Button>
         ) : null}
-        <span className="ml-auto font-mono text-[0.6875rem] text-muted-foreground" aria-label="Team feedback">
+        <span
+          className="ml-auto font-mono text-[0.6875rem] text-muted-foreground"
+          title="Dashboard answers, 👍/👎 on Revo's GitHub comment, and fixes pushed after the review"
+        >
+          <span className="sr-only">Team feedback: </span>
           {counts.useful} useful · {counts.wrong} wrong
+          {sources.length > 0 ? <span className="text-ink-soft"> ({sources.join(', ')})</span> : null}
         </span>
       </div>
 

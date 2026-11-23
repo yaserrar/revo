@@ -3,7 +3,7 @@ import type { FeedbackBody } from '@revo/shared';
 import type { FindingFeedbackDto } from '~/types/review';
 import { prisma } from '../../config/prisma';
 import { notFound, unprocessable } from '../../http/errors';
-import { feedbackCounts, presentFeedback } from '../../presenters/finding.presenter';
+import { feedbackCounts, feedbackFrom, presentFeedback } from '../../presenters/finding.presenter';
 
 /** The finding, if the user can access its repo (spec 14: feedback only with access). */
 async function findAccessibleFinding(findingId: string, repoIds: string[]) {
@@ -21,7 +21,12 @@ async function feedbackState(findingId: string, userId: string): Promise<Finding
     include: { user: { select: { login: true, avatarUrl: true } } },
   });
   const mine = rows.find((r) => r.userId === userId);
-  return { findingId, myFeedback: mine ? presentFeedback(mine) : null, feedbackCounts: feedbackCounts(rows) };
+  return {
+    findingId,
+    myFeedback: mine ? presentFeedback(mine) : null,
+    feedbackCounts: feedbackCounts(rows),
+    feedbackFrom: feedbackFrom(rows),
+  };
 }
 
 export const feedbackService = {
