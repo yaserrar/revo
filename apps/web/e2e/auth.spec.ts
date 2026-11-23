@@ -1,16 +1,16 @@
 import { expect, test } from '@playwright/test';
 
-test('the landing page is public and leads to sign-in', async ({ page }) => {
+test('the landing page is public and signs in with GitHub in one click', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1 })).toContainText('proves its point');
-  await page.getByRole('link', { name: 'Sign in with GitHub' }).click();
-  await expect(page).toHaveURL(/\/sign-in$/);
+  await page.getByRole('main').getByRole('button', { name: 'Sign in with GitHub' }).click();
+  await expect(page).toHaveURL(/\/overview$/);
 });
 
 test('signed-out visitors of the dashboard are sent to the sign-in page', async ({ page }) => {
   await page.goto('/overview');
   await expect(page).toHaveURL(/\/sign-in\?callbackUrl=%2Foverview$/);
-  await expect(page.getByRole('heading', { level: 1 })).toContainText('prove');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sign in to Revo');
 });
 
 test('signing in with GitHub (mock) lands on the overview', async ({ page }) => {

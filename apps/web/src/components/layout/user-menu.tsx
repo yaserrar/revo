@@ -44,7 +44,7 @@ export function UserMenu({ user, installUrl }: { user: UserDto; installUrl: stri
           {resolvedTheme === 'dark' ? 'Light theme' : 'Dark theme'}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => void signOut({ redirectTo: '/sign-in' })}>
+        <DropdownMenuItem onSelect={() => void signOut({ redirectTo: '/' })}>
           <LogoutCurve className="size-4" />
           Sign out
         </DropdownMenuItem>

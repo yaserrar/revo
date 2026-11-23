@@ -4,6 +4,7 @@ import { Wordmark } from '~/components/brand/wordmark';
 import { ThemeToggle } from '~/components/layout/theme-toggle';
 import { Button } from '~/components/ui/button';
 import { SOURCE_URL } from '~/constants/site';
+import { signInWithGithub } from '~/server/auth/actions';
 
 const SECTIONS = [
   { href: '/#how', label: 'How it works' },
@@ -45,9 +46,17 @@ export function LandingHeader({ signedIn }: { signedIn: boolean }) {
             </a>
           </Button>
           <ThemeToggle />
-          <Button asChild size="sm" className="ml-1">
-            <Link href={signedIn ? '/overview' : '/sign-in'}>{signedIn ? 'Open dashboard' : 'Sign in'}</Link>
-          </Button>
+          {signedIn ? (
+            <Button asChild size="sm" className="ml-1">
+              <Link href="/overview">Open dashboard</Link>
+            </Button>
+          ) : (
+            <form action={signInWithGithub} className="ml-1">
+              <Button type="submit" size="sm">
+                Sign in
+              </Button>
+            </form>
+          )}
         </div>
       </nav>
     </header>

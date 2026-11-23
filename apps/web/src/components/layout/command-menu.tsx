@@ -82,7 +82,7 @@ export function CommandMenu({ extra, showDevKit = false }: { extra?: ReactNode; 
             <Moon className="size-4" />
             Dark theme
           </CommandItem>
-          <CommandItem value="sign out" onSelect={() => run(() => void signOut({ redirectTo: '/sign-in' }))}>
+          <CommandItem value="sign out" onSelect={() => run(() => void signOut({ redirectTo: '/' }))}>
             <LogoutCurve className="size-4" />
             Sign out
           </CommandItem>

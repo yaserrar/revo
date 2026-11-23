@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Wordmark } from '~/components/brand/wordmark';
 import { DEPLOY_GUIDE_URL, SOURCE_URL } from '~/constants/site';
+import { signInWithGithub } from '~/server/auth/actions';
 
 const linkClass =
   'rounded-sm hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none';
@@ -33,9 +34,17 @@ export function SiteFooter({ signedIn }: { signedIn: boolean }) {
           <Link href="/terms" className={linkClass}>
             Terms
           </Link>
-          <Link href={signedIn ? '/overview' : '/sign-in'} className={linkClass}>
-            {signedIn ? 'Dashboard' : 'Sign in'}
-          </Link>
+          {signedIn ? (
+            <Link href="/overview" className={linkClass}>
+              Dashboard
+            </Link>
+          ) : (
+            <form action={signInWithGithub} className="contents">
+              <button type="submit" className={`${linkClass} cursor-pointer`}>
+                Sign in
+              </button>
+            </form>
+          )}
         </nav>
       </div>
     </footer>

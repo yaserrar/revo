@@ -9,6 +9,7 @@ import { SiteFooter } from '~/components/marketing/site-footer';
 import { ScoreDial } from '~/components/revo/score-dial';
 import { Button } from '~/components/ui/button';
 import { DEPLOY_GUIDE_URL, SOURCE_URL } from '~/constants/site';
+import { signInWithGithub } from '~/server/auth/actions';
 import { getSessionUser } from '~/server/auth/session';
 import { env } from '~/server/config/env';
 import { installUrlFor } from '~/server/modules/repos/install-url';
@@ -100,9 +101,6 @@ function SectionHead({
 
 export default async function LandingPage() {
   const signedIn = Boolean(await getSessionUser());
-  const primary = signedIn
-    ? { href: '/overview', label: 'Open dashboard' }
-    : { href: '/sign-in', label: 'Sign in with GitHub' };
   const installUrl = installUrlFor(env.GITHUB_APP_SLUG);
   const freeReviews = env.FREE_REVIEWS_PER_MONTH;
 
@@ -122,12 +120,18 @@ export default async function LandingPage() {
               survives is posted on GitHub, with a score out of 100 that a fixed formula explains.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-3">
-              <Button asChild size="lg" className="gap-2.5 pr-6">
-                <Link href={primary.href}>
-                  {signedIn ? null : <GithubMark className="size-[18px]" />}
-                  {primary.label}
-                </Link>
-              </Button>
+              {signedIn ? (
+                <Button asChild size="lg" className="gap-2.5 pr-6">
+                  <Link href="/overview">Open dashboard</Link>
+                </Button>
+              ) : (
+                <form action={signInWithGithub}>
+                  <Button type="submit" size="lg" className="gap-2.5 pr-6">
+                    <GithubMark className="size-[18px]" />
+                    Sign in with GitHub
+                  </Button>
+                </form>
+              )}
               {installUrl ? (
                 <Button asChild size="lg" variant="accent" className="gap-2">
                   <a href={installUrl}>
