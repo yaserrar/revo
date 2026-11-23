@@ -49,6 +49,7 @@ export {
 } from './comments';
 export {
   codeSpan,
+  coversFinding,
   findingKey,
   findingKeyFromBody,
   findingMarker,
@@ -56,6 +57,7 @@ export {
   isInlineSeverity,
   renderInlineComment,
   safeText,
+  suggestionBlock,
   type InlineFinding,
   type InlineTarget,
 } from './inline';
@@ -70,6 +72,7 @@ export {
   renderSummaryComment,
   type NotReviewedReason,
   type SummaryFinding,
+  type SummaryFixed,
   type SummaryInput,
 } from './summary';
 export {
@@ -87,6 +90,14 @@ export {
   type PullRequestEvent,
   type PullRequestPayload,
 } from './webhooks';
+export {
+  listReviewThreads,
+  reactionFeedback,
+  resolveReviewThread,
+  type ReactionContent,
+  type ReactionFeedback,
+  type ReviewThreadState,
+} from './threads';
 export { REEVALUATED_SKIP_REASONS, skipReasonFor, type GateInput } from './rules';
 export {
   APP_EVENTS,

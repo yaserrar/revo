@@ -95,6 +95,43 @@ export type MockReviewComment = {
   body: string;
 };
 
+/** GraphQL `ReactionContent` values; the REST names (+1, -1, …) are accepted by the test hooks. */
+export const REACTION_CONTENTS = [
+  'THUMBS_UP',
+  'THUMBS_DOWN',
+  'LAUGH',
+  'HOORAY',
+  'CONFUSED',
+  'HEART',
+  'ROCKET',
+  'EYES',
+] as const;
+export type MockReactionContent = (typeof REACTION_CONTENTS)[number];
+const REST_REACTIONS: Record<string, MockReactionContent> = {
+  '+1': 'THUMBS_UP',
+  '-1': 'THUMBS_DOWN',
+  laugh: 'LAUGH',
+  hooray: 'HOORAY',
+  confused: 'CONFUSED',
+  heart: 'HEART',
+  rocket: 'ROCKET',
+  eyes: 'EYES',
+};
+
+export function reactionContent(value: string): MockReactionContent | null {
+  if ((REACTION_CONTENTS as readonly string[]).includes(value)) return value as MockReactionContent;
+  return REST_REACTIONS[value] ?? null;
+}
+
+export type MockReaction = { content: MockReactionContent; login: string; userId: number };
+
+/** A stable fake GitHub user id for a login (same login, same id). */
+export function mockUserId(login: string): number {
+  let hash = 0;
+  for (const ch of login) hash = (hash * 31 + ch.charCodeAt(0)) % 1_000_000;
+  return 80_000_000 + hash;
+}
+
 export type WebhookTarget = { url: string; secret: string };
 export type WebhookDelivery = { id: string; event: string; action: string | null; status: number | null };
 
@@ -120,6 +157,10 @@ export class MockAppState {
   readonly issueComments = new Map<number, MockIssueComment>();
   readonly reviews: MockReview[] = [];
   readonly reviewComments: MockReviewComment[] = [];
+  /** Resolved review threads, by the id of their first comment, with who resolved them. */
+  readonly resolvedThreads = new Map<number, string>();
+  /** Reactions on review comments, by comment id. */
+  readonly reactions = new Map<number, MockReaction[]>();
   readonly deliveries: WebhookDelivery[] = [];
   /** Logins that can see every repo of a (non-demo) installation, by installation id. */
   private readonly members = new Map<number, Set<string>>();
@@ -494,6 +535,45 @@ export class MockAppState {
       });
     }
     return id;
+  }
+
+  // ── Review threads and reactions (GraphQL) ────────────────────────────────
+
+  /** The first comment of a review thread on this PR (each top-level review comment opens one). */
+  threadComment(pull: MockPull, commentId: number): MockReviewComment {
+    const comment = this.reviewComments.find(
+      (c) => c.id === commentId && c.repoId === pull.repoId && c.number === pull.number,
+    );
+    if (!comment) throw new MockError(404, 'Unknown review comment');
+    return comment;
+  }
+
+  /** Adds `login`'s reaction (one per person and content, like GitHub). */
+  react(commentId: number, content: MockReactionContent, login: string): void {
+    const list = this.reactions.get(commentId) ?? [];
+    if (!list.some((r) => r.content === content && r.login === login))
+      list.push({ content, login, userId: mockUserId(login) });
+    this.reactions.set(commentId, list);
+  }
+
+  unreact(commentId: number, content: MockReactionContent, login: string): void {
+    const list = (this.reactions.get(commentId) ?? []).filter(
+      (r) => !(r.content === content && r.login === login),
+    );
+    this.reactions.set(commentId, list);
+  }
+
+  /** Review threads of a PR, as the GraphQL API shows them. */
+  reviewThreads(pull: MockPull) {
+    return this.reviewComments
+      .filter((c) => c.repoId === pull.repoId && c.number === pull.number)
+      .map((c) => ({
+        id: `PRRT_${c.id}`,
+        commentId: c.id,
+        isResolved: this.resolvedThreads.has(c.id),
+        resolvedBy: this.resolvedThreads.get(c.id) ?? null,
+        reactions: this.reactions.get(c.id) ?? [],
+      }));
   }
 
   // ── Webhooks ──────────────────────────────────────────────────────────────

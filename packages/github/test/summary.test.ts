@@ -3,6 +3,7 @@ import { SUMMARY_MARKER } from '@revo/shared';
 import { failedCheck, resultCheck, skippedCheck } from '../src/checks';
 import { partialCoverage } from '../src/summary';
 import {
+  changeDiff,
   excerpt,
   formatCost,
   formatDuration,
@@ -378,5 +379,44 @@ describe('check presentations (spec 7.8)', () => {
       "Revo's free reviews are paused until next month. Add your own Anthropic API key in Revo to keep reviewing.",
     );
     expect(failedCheck()).toMatchObject({ conclusion: 'neutral', title: "Revo couldn't review this PR" });
+  });
+});
+
+describe('fixes and one-click changes in the summary', () => {
+  const major = base.findings[0]!;
+
+  it('shows a replacement as a diff of the flagged lines', () => {
+    const f = { ...major, replacement: 'fixed 44\nfixed 45' };
+    expect(changeDiff(f)).toBe('-line 44\n-line 45\n-line 46\n+fixed 44\n+fixed 45');
+    expect(changeDiff({ ...f, replacement: '' })).toBe('-line 44\n-line 45\n-line 46');
+    expect(changeDiff(major)).toBeNull();
+    expect(changeDiff({ ...f, lineStart: 30 })).toBeNull();
+    const md = renderSummaryComment({ ...base, findings: [f] });
+    expect(md).toContain('**Suggested change.**\n\n```diff\n-line 44');
+  });
+
+  it('lists what the new commits fixed, and marks problems still open from an earlier review', () => {
+    const md = renderSummaryComment({
+      ...base,
+      findings: [{ ...major, openSince: 'b'.repeat(40) }],
+      fixed: [
+        {
+          category: 'security',
+          severity: 'blocker',
+          file: 'src/api/orders.ts',
+          lineStart: 9,
+          lineEnd: 9,
+          title: 'SQL built from @input',
+          inlineUrl: 'https://github.com/acme/shop/pull/7#discussion_r42',
+        },
+      ],
+    });
+    expect(md).toContain('### Fixed since the last review (1)');
+    expect(md).toContain(
+      '- ✅ Blocker · SQL built from @\u200binput · `src/api/orders.ts:9` · [thread](https://github.com/acme/shop/pull/7#discussion_r42)',
+    );
+    expect(md).toContain('Discount applied after tax _(still open)_');
+    expect(md).toContain(`open since [\`bbbbbbb\`](https://github.com/acme/shop/commit/${'b'.repeat(40)})`);
+    expect(renderSummaryComment(base)).not.toContain('Fixed since the last review');
   });
 });

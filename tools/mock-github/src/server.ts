@@ -15,6 +15,7 @@ export {
   MOCK_APP_ID,
   MOCK_APP_SLUG,
   MockAppState,
+  mockUserId,
   type MockCheckRun,
   type MockFileChange,
   type MockIssueComment,

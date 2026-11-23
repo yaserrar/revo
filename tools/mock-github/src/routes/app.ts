@@ -392,6 +392,75 @@ export function appRoutes(state: MockAppState): MockRoute[] {
       },
     },
     {
+      // The two GraphQL operations Revo sends: review threads with reactions, and resolving a thread.
+      method: 'POST',
+      path: '/graphql',
+      handler: (req) => {
+        const installationId = state.installationForToken(req.token);
+        if (installationId === null) return { status: 401, json: { message: 'Bad credentials' } };
+        const b = body(req);
+        const query = str(b.query) ?? '';
+        const vars = (typeof b.variables === 'object' && b.variables !== null ? b.variables : {}) as Json;
+        if (query.includes('RevoReviewThreads')) {
+          const repo = state.repoByName(str(vars.owner) ?? '', str(vars.repo) ?? '');
+          if (!repo || repo.installationId !== installationId)
+            return {
+              json: { data: { repository: null }, errors: [{ type: 'NOT_FOUND', message: 'Not found' }] },
+            };
+          const pull = state.findPull(repo.id, num(vars.number) ?? 0);
+          const nodes = state.reviewThreads(pull).map((t) => {
+            const groups = new Map<string, { login: string; userId: number }[]>();
+            for (const r of t.reactions) groups.set(r.content, [...(groups.get(r.content) ?? []), r]);
+            return {
+              id: t.id,
+              isResolved: t.isResolved,
+              comments: {
+                nodes: [
+                  {
+                    databaseId: t.commentId,
+                    reactionGroups: [...groups].map(([content, users]) => ({
+                      content,
+                      reactors: {
+                        nodes: users.map((u) => ({
+                          __typename: 'User',
+                          login: u.login,
+                          databaseId: u.userId,
+                        })),
+                      },
+                    })),
+                  },
+                ],
+              },
+            };
+          });
+          return {
+            json: {
+              data: {
+                repository: {
+                  pullRequest: {
+                    reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes },
+                  },
+                },
+              },
+            },
+          };
+        }
+        if (query.includes('RevoResolveThread')) {
+          const threadId = str(vars.threadId) ?? '';
+          const commentId = Number(threadId.replace(/^PRRT_/, ''));
+          const comment = state.reviewComments.find((c) => c.id === commentId);
+          const repo = comment ? state.repos.get(comment.repoId) : undefined;
+          if (!comment || !repo || repo.installationId !== installationId)
+            return {
+              json: { data: null, errors: [{ type: 'NOT_FOUND', message: 'Could not resolve to a node' }] },
+            };
+          state.resolvedThreads.set(comment.id, state.bot.login);
+          return { json: { data: { resolveReviewThread: { thread: { id: threadId, isResolved: true } } } } };
+        }
+        return { status: 400, json: { message: 'Unsupported GraphQL operation in the mock' } };
+      },
+    },
+    {
       method: 'GET',
       path: '/repos/:owner/:repo/pulls/:number/reviews/:reviewId/comments',
       handler: (req) => {

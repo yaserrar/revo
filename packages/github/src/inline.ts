@@ -197,13 +197,49 @@ export type InlineFinding = {
   category: Category;
   severity: Severity;
   file: string;
+  lineStart: number;
+  lineEnd: number;
   title: string;
   explanation: string;
   suggestion: string;
+  /** Exact new code for lines lineStart..lineEnd (checked by pass 2 and against the file). */
+  replacement?: string;
 };
 
-/** Markdown of one inline comment, with its hidden identity marker. */
-export function renderInlineComment(f: InlineFinding): string {
+/**
+ * A GitHub suggested change ("Apply suggestion" button) replacing the
+ * commented lines with `code`. The fence is longer than any backtick run
+ * inside, so the code cannot close it. Null for code that holds an HTML
+ * comment: it could forge or break Revo's hidden marker, and suggestion code
+ * cannot be escaped without changing what gets applied.
+ */
+export function suggestionBlock(code: string): string | null {
+  if (/<!--|-->/.test(code)) return null;
+  const longest = Math.max(2, ...(code.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = '`'.repeat(longest + 1);
+  // An empty suggestion deletes the lines.
+  return code === '' ? `${fence}suggestion\n${fence}` : `${fence}suggestion\n${code}\n${fence}`;
+}
+
+/**
+ * True when a comment placed at `target` covers exactly the finding's lines:
+ * only then does a suggested change replace the right code.
+ */
+export function coversFinding(
+  target: InlineTarget,
+  f: Pick<InlineFinding, 'lineStart' | 'lineEnd'>,
+): boolean {
+  return target.line === f.lineEnd && (target.startLine ?? target.line) === f.lineStart;
+}
+
+/**
+ * Markdown of one inline comment, with its hidden identity marker. With
+ * `target` covering the finding's lines exactly, a replacement becomes a
+ * one-click suggested change.
+ */
+export function renderInlineComment(f: InlineFinding, target?: InlineTarget): string {
+  const suggestion =
+    f.replacement !== undefined && target && coversFinding(target, f) ? suggestionBlock(f.replacement) : null;
   return [
     `**${SEVERITY_LABELS[f.severity].toUpperCase()} · ${f.category}** · ${safeText(f.title)}`,
     '',
@@ -211,6 +247,7 @@ export function renderInlineComment(f: InlineFinding): string {
     '',
     `**Fix:** ${safeText(f.suggestion)}`,
     '',
+    ...(suggestion ? [suggestion, ''] : []),
     findingMarker(findingKey(f)),
   ].join('\n');
 }

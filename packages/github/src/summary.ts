@@ -36,7 +36,17 @@ export type SummaryFinding = {
   snippetStartLine?: number;
   /** Link to the inline comment thread, when the finding was also posted on its line. */
   inlineUrl?: string;
+  /** Exact new code for the flagged lines (a one-click suggested change on the inline comment). */
+  replacement?: string;
+  /** Head commit of the earlier review that first found it, when it is still open from then. */
+  openSince?: string | null;
 };
+
+/** A problem of an earlier review that the new commits fixed (its lines changed). */
+export type SummaryFixed = Pick<
+  SummaryFinding,
+  'category' | 'severity' | 'file' | 'lineStart' | 'lineEnd' | 'title' | 'inlineUrl'
+>;
 
 /** Why a changed file was not reviewed (same values as `@revo/review`). */
 export type NotReviewedReason = 'ignored' | 'removed' | 'binary' | 'size_limit' | 'token_budget';
@@ -52,6 +62,8 @@ export type SummaryInput = {
   breakdown: ScoreBreakdownRow[];
   /** Confirmed findings, in order (at most `maxFindings`). */
   findings: SummaryFinding[];
+  /** Problems of the previous review fixed by the new commits (their threads are resolved). */
+  fixed?: SummaryFixed[];
   /** The repo's cap on posted findings. */
   maxFindings: number;
   /** Possible problems that were dismissed: counted here, listed only in the dashboard (spec 3.2). */
@@ -282,16 +294,21 @@ function findingsTable(input: SummaryInput): string[] {
       // In a table, `|` splits cells even inside a code span unless escaped.
       const label = codeSpan(`${shortPath(f.file)}:${lines}`).replace(/\|/g, '\\|');
       const where = `[${label}](${lineUrl(input.repoUrl, input.headSha, f.file, f.lineStart, f.lineEnd)})`;
-      return `| ${i + 1} | ${SEVERITY_ICON[f.severity]} ${SEVERITY_LABELS[f.severity]} | ${CATEGORY_LABELS[f.category]} | ${where} | ${cell(f.title)} |`;
+      const still = f.openSince ? ' _(still open)_' : '';
+      return `| ${i + 1} | ${SEVERITY_ICON[f.severity]} ${SEVERITY_LABELS[f.severity]} | ${CATEGORY_LABELS[f.category]} | ${where} | ${cell(f.title)}${still} |`;
     }),
   ];
 }
 
 /** A fenced block GitHub highlights, with a fence no line inside can close. */
 function codeBlock(code: string, path: string): string[] {
+  return fencedBlock(code, languageForPath(path));
+}
+
+function fencedBlock(code: string, language: string): string[] {
   const longest = Math.max(2, ...(code.match(/`+/g) ?? []).map((run) => run.length));
   const fence = '`'.repeat(longest + 1);
-  return [`${fence}${languageForPath(path)}`, code, fence];
+  return [`${fence}${language}`, code, fence];
 }
 
 /** The flagged lines with a little context, cut from the stored snippet (long lines shortened). */
@@ -308,6 +325,20 @@ export function excerpt(f: SummaryFinding): { code: string; from: number; to: nu
     .map((l) => (l.length > MAX_EXCERPT_LINE_CHARS ? `${l.slice(0, MAX_EXCERPT_LINE_CHARS)} …` : l))
     .join('\n');
   return code.trim() ? { code, from, to } : null;
+}
+
+/**
+ * The replacement as a diff of the flagged lines (old lines from the stored
+ * snippet). Null without a replacement, or when the snippet does not hold
+ * every flagged line.
+ */
+export function changeDiff(f: SummaryFinding): string | null {
+  if (f.replacement === undefined || !f.snippet || !f.snippetStartLine) return null;
+  const lines = f.snippet.replace(/\r\n?/g, '\n').split('\n');
+  const old = lines.slice(f.lineStart - f.snippetStartLine, f.lineEnd - f.snippetStartLine + 1);
+  if (f.lineStart < f.snippetStartLine || old.length !== f.lineEnd - f.lineStart + 1) return null;
+  const added = f.replacement === '' ? [] : f.replacement.split('\n');
+  return [...old.map((l) => `-${l}`), ...added.map((l) => `+${l}`)].join('\n');
 }
 
 /** "**Label.** text", with the label on its own line when the text has several lines (fenced code). */
@@ -327,6 +358,10 @@ function findingDetails(input: SummaryInput, detail: Detail): string[] {
     if (f.confidence !== undefined) meta.push(`confidence ${Math.round(f.confidence * 100)}%`);
     if (f.originalSeverity && f.originalSeverity !== f.severity)
       meta.push(`lowered from ${SEVERITY_LABELS[f.originalSeverity]} by verification`);
+    if (f.openSince)
+      meta.push(
+        `open since [${codeSpan(shortSha(f.openSince))}](${input.repoUrl.replace(/\/$/, '')}/commit/${f.openSince})`,
+      );
     if (f.inlineUrl) meta.push(`[discussed inline](${f.inlineUrl})`);
     out.push(
       `<details${open}>`,
@@ -346,9 +381,29 @@ function findingDetails(input: SummaryInput, detail: Detail): string[] {
       );
     }
     if (f.suggestion.trim()) out.push(...labelled('Suggested fix', f.suggestion));
+    const change = detail === 'full' ? changeDiff(f) : null;
+    if (change) out.push('**Suggested change.**', '', ...fencedBlock(change, 'diff'), '');
     out.push('</details>', '');
   });
   return out;
+}
+
+/** "Fixed since the last review": what the new commits fixed, each linking to its resolved thread. */
+function fixedSection(input: SummaryInput): string[] {
+  const fixed = input.fixed ?? [];
+  if (fixed.length === 0) return [];
+  return [
+    `### Fixed since the last review (${fixed.length})`,
+    '',
+    ...fixed.map((f) => {
+      const where = codeSpan(
+        `${shortPath(f.file)}:${f.lineStart === f.lineEnd ? f.lineStart : `${f.lineStart}-${f.lineEnd}`}`,
+      );
+      const thread = f.inlineUrl ? ` · [thread](${f.inlineUrl})` : '';
+      return `- ✅ ${SEVERITY_LABELS[f.severity]} · ${cell(f.title)} · ${where}${thread}`;
+    }),
+    '',
+  ];
 }
 
 function pathList(paths: string[]): string[] {
@@ -420,6 +475,8 @@ function scoringHelp(input: SummaryInput): string[] {
 /** Everything under the headline, shared by the PR comment and the check run summary. */
 function body(input: SummaryInput, detail: Detail): string[] {
   const out = [checkLine(input), '', ...partialWarning(input), metaLine(input), '', ...overviewTable(input)];
+  const fixed = fixedSection(input);
+  if (fixed.length > 0) out.push('', ...fixed);
   if (input.findings.length > 0) {
     out.push('', equation(input), '', '### Problems', '', ...findingsTable(input), '');
     if (detail === 'full' || detail === 'no_excerpts') out.push(...findingDetails(input, detail));

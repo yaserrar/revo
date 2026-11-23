@@ -1,4 +1,10 @@
-import { MockError, type MockAppState, type MockFileChange, type MockPull } from '../app-state';
+import {
+  MockError,
+  reactionContent,
+  type MockAppState,
+  type MockFileChange,
+  type MockPull,
+} from '../app-state';
 import type { MockRequest, MockRoute } from '../router';
 
 /**
@@ -268,8 +274,34 @@ export function appDebugRoutes(state: MockAppState): MockRoute[] {
             reviewComments: state.reviewComments.filter(
               (c) => c.repoId === pull.repoId && c.number === pull.number,
             ),
+            threads: state.reviewThreads(pull),
           },
         };
+      },
+    },
+    {
+      // A person reacts to a review comment: {content: "+1" | "-1" | THUMBS_UP | …, login?, remove?}.
+      method: 'POST',
+      path: '/__mock/repos/:owner/:repo/pulls/:number/comments/:id/reactions',
+      handler: (req) => {
+        const comment = state.threadComment(pullOf(req), Number(req.params.id));
+        const content = reactionContent(str(json(req).content) ?? '');
+        if (!content) return { status: 422, json: { message: 'unknown reaction content' } };
+        const login = str(json(req).login) ?? 'maya-chen';
+        if (json(req).remove === true) state.unreact(comment.id, content, login);
+        else state.react(comment.id, content, login);
+        return { json: { commentId: comment.id, reactions: state.reactions.get(comment.id) ?? [] } };
+      },
+    },
+    {
+      // A person resolves (or, with {resolved: false}, unresolves) the thread a review comment opened.
+      method: 'POST',
+      path: '/__mock/repos/:owner/:repo/pulls/:number/comments/:id/resolve',
+      handler: (req) => {
+        const comment = state.threadComment(pullOf(req), Number(req.params.id));
+        if (json(req).resolved === false) state.resolvedThreads.delete(comment.id);
+        else state.resolvedThreads.set(comment.id, str(json(req).login) ?? 'maya-chen');
+        return { json: { commentId: comment.id, resolved: state.resolvedThreads.has(comment.id) } };
       },
     },
   ];

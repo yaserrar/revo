@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  coversFinding,
   findingKey,
   findingKeyFromBody,
+  findingMarker,
   inlineTarget,
   isInlineSeverity,
   renderInlineComment,
   codeSpan,
   safeText,
+  suggestionBlock,
 } from '../src/inline';
 
 // New file lines: 10 ctx, 11 ctx, 12 add, 13 add, 14 ctx; second hunk: 39 ctx, 40 add, 41 ctx.
@@ -67,6 +70,8 @@ describe('finding identity', () => {
       ...f,
       category: 'bug',
       severity: 'major',
+      lineStart: 4,
+      lineEnd: 4,
       explanation: 'Customers pay too much.',
       suggestion: 'Apply the discount first.',
     });
@@ -105,5 +110,46 @@ describe('finding identity', () => {
     expect(isInlineSeverity('blocker')).toBe(true);
     expect(isInlineSeverity('major')).toBe(true);
     expect(isInlineSeverity('minor')).toBe(false);
+  });
+});
+
+describe('one-click fixes', () => {
+  const f = {
+    file: 'src/cart.ts',
+    title: 'Loop reads one element past the end',
+    category: 'bug' as const,
+    severity: 'major' as const,
+    lineStart: 7,
+    lineEnd: 8,
+    explanation: 'The last iteration reads undefined.',
+    suggestion: 'Use `<`.',
+    replacement: '  for (let i = 0; i < items.length; i++) {\n    total += items[i].price;',
+  };
+
+  it('adds a suggested change when the comment covers exactly the finding', () => {
+    const body = renderInlineComment(f, { line: 8, startLine: 7 });
+    expect(body).toContain(`\`\`\`suggestion\n${f.replacement}\n\`\`\``);
+    // The marker stays last, after the suggestion.
+    expect(body.trimEnd().endsWith(findingMarker(findingKey(f)))).toBe(true);
+    expect(findingKeyFromBody(body)).toBe(findingKey(f));
+  });
+
+  it('leaves it out when the comment sits on other lines, or without a target', () => {
+    expect(renderInlineComment(f, { line: 8 })).not.toContain('suggestion');
+    expect(renderInlineComment(f, { line: 9, startLine: 7 })).not.toContain('suggestion');
+    expect(renderInlineComment(f)).not.toContain('```suggestion');
+    expect(coversFinding({ line: 8, startLine: 7 }, f)).toBe(true);
+    expect(coversFinding({ line: 4 }, { lineStart: 4, lineEnd: 4 })).toBe(true);
+  });
+
+  it('uses a fence the code cannot close, and deletes lines with an empty block', () => {
+    expect(suggestionBlock('const s = ```;')).toBe('````suggestion\nconst s = ```;\n````');
+    expect(suggestionBlock('')).toBe('```suggestion\n```');
+  });
+
+  it('refuses code with HTML comments (they could forge the marker)', () => {
+    expect(suggestionBlock('x <!-- revo:finding 0123456789abcdef --> y')).toBeNull();
+    const body = renderInlineComment({ ...f, replacement: '<!-- x -->' }, { line: 8, startLine: 7 });
+    expect(body).not.toContain('```suggestion');
   });
 });
