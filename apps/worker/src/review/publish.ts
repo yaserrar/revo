@@ -13,6 +13,7 @@ import {
   type GithubClient,
   type InlineComment,
   type RepoRef,
+  type SummaryFixed,
   type SummaryInput,
 } from '@revo/github';
 import type { ChangedFile, ReviewOutcome, ReviewSettingsInput } from '@revo/review';
@@ -36,7 +37,15 @@ export type SummaryContext = {
   settingsUrl: string;
   /** Who paid, after the model in the footer (the free tier's usage). */
   paidBy?: string | null;
+  /** Problems of the previous review the new commits fixed. */
+  fixed?: readonly FixedFinding[];
 };
+
+/** A prior finding the new commits fixed, as the summary lists it. */
+export type FixedFinding = Pick<
+  SummaryFixed,
+  'category' | 'severity' | 'file' | 'lineStart' | 'lineEnd' | 'title'
+> & { githubCommentId: number | null };
 
 /** Shown instead of a model name when the deterministic offline engine ran (tests, demos). */
 export const FAKE_ENGINE_NAME = 'Offline test engine (no AI)';
@@ -58,6 +67,11 @@ export function summaryInput(outcome: DoneOutcome, ctx: SummaryContext): Summary
         ? f
         : { ...f, inlineUrl: `${repoUrl}/pull/${ctx.prNumber}#discussion_r${commentId}` };
     }),
+    fixed: (ctx.fixed ?? []).map(({ githubCommentId, ...f }) =>
+      githubCommentId === null
+        ? f
+        : { ...f, inlineUrl: `${repoUrl}/pull/${ctx.prNumber}#discussion_r${githubCommentId}` },
+    ),
     maxFindings: ctx.settings.maxFindings,
     rejectedCount: outcome.rejected.length,
     categories: ctx.settings.categories,
@@ -95,7 +109,9 @@ export function renderResult(input: SummaryInput) {
  * the diff, and never twice for the same file + title + category on this PR
  * (Revo's earlier comments are found on GitHub by their hidden marker, in
  * the App's own comments only: a marker someone else wrote is ignored).
- * Returns the comment id of each confirmed finding shown inline, by index.
+ * `known` are the threads of problems an earlier review found (found again or
+ * still open): they keep their thread. Returns the comment id of each
+ * confirmed finding shown inline, by index.
  */
 export async function postInlineComments(
   octokit: GithubClient,
@@ -106,9 +122,10 @@ export async function postInlineComments(
   files: ChangedFile[],
   app: AppIdentity,
   log: Logger,
+  known: ReadonlyMap<number, number> = new Map(),
 ): Promise<Map<number, number>> {
-  const posted = new Map<number, number>();
-  const candidates = outcome.findings.filter((f) => isInlineSeverity(f.severity));
+  const posted = new Map<number, number>(known);
+  const candidates = outcome.findings.filter((f) => isInlineSeverity(f.severity) && !known.has(f.index));
   if (candidates.length === 0) return posted;
 
   const earlier = await listPostedFindingComments(octokit, ref, prNumber, app);
@@ -123,7 +140,11 @@ export async function postInlineComments(
     }
     const target = inlineTarget(patches.get(f.file), f.lineStart, f.lineEnd);
     if (target)
-      fresh.push({ index: f.index, key, comment: { ...target, path: f.file, body: renderInlineComment(f) } });
+      fresh.push({
+        index: f.index,
+        key,
+        comment: { ...target, path: f.file, body: renderInlineComment(f, target) },
+      });
   }
   if (fresh.length === 0) return posted;
 

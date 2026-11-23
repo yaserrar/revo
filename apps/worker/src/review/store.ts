@@ -263,6 +263,8 @@ function findingRow(
     rejectReason: verified ? null : f.reason,
     posted: commentId !== undefined,
     githubCommentId: commentId === undefined ? null : BigInt(commentId),
+    replacement: f.replacement ?? null,
+    openSince: verified ? (f.openSince ?? null) : null,
   };
 }
 
@@ -284,11 +286,28 @@ export async function saveDone(
     posted: PostedFindings;
     summaryCommentId: number | null;
     aiSource: AiSource;
+    /** Findings of the previous review that this commit fixed. */
+    fixedFindingIds?: readonly string[];
+    /** The reviewed commit (where the fixes were seen). */
+    headSha?: string;
   },
 ) {
   const { outcome } = input;
   const now = new Date();
+  const fixedIds = [...(input.fixedFindingIds ?? [])];
   await prisma.$transaction([
+    // A fix is the author agreeing with the finding: it counts as useful feedback.
+    prisma.finding.updateMany({
+      where: { id: { in: fixedIds }, resolution: null },
+      data: { resolution: 'fixed', resolvedAt: now, resolvedSha: input.headSha ?? null },
+    }),
+    prisma.feedback.createMany({
+      data: fixedIds.map((findingId) => ({
+        findingId,
+        source: 'fixed' as const,
+        outcome: 'useful' as const,
+      })),
+    }),
     prisma.finding.deleteMany({ where: { reviewId: input.reviewId } }),
     prisma.finding.createMany({
       data: [

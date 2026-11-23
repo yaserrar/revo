@@ -1,7 +1,8 @@
 /**
  * Revo worker: consumes the "reviews" queue (spec section 4). Validates the
  * environment, checks Postgres and Redis, then processes review jobs with
- * WORKER_CONCURRENCY in parallel, and prunes the webhook log every 6 hours.
+ * WORKER_CONCURRENCY in parallel, prunes the webhook log every 6 hours, and
+ * reads GitHub feedback (reactions, resolved threads) every 10 minutes.
  * SIGINT/SIGTERM stop taking jobs, let the running ones finish, and close
  * every connection.
  */
@@ -14,6 +15,8 @@ import { startHeartbeat } from './heartbeat';
 import { createLogger } from './logger';
 import { bullConnection } from './redis';
 import { aiAccessConfig } from './review/ai-access';
+import { FEEDBACK_SWEEP_EVERY_MS } from './review/feedback';
+import { sweepFeedback } from './review/track';
 import { createReviewWorker } from './worker';
 
 const PRUNE_EVERY_MS = 6 * 3600_000;
@@ -34,10 +37,11 @@ async function main() {
     log.info(
       'REVO_ALLOW_CLAUDE_SUBSCRIPTION is on: accounts set to the Claude subscription run through Claude Code on this machine (sign in with `claude`, then /login)',
     );
+  const githubApp = createGithubApp(github);
   const worker = createReviewWorker(
     {
       prisma,
-      github: createGithubApp(github),
+      github: githubApp,
       engine: createEngine(env, log),
       accountEngine: createAccountEngines(env, log),
       ...(env.REVO_ALLOW_CLAUDE_SUBSCRIPTION
@@ -71,6 +75,7 @@ async function main() {
     'worker ready',
   );
 
+  let stopping = false;
   const stopHeartbeat = startHeartbeat(async () => {
     if (!worker.isRunning()) return false;
     await prisma.$queryRaw`SELECT 1`;
@@ -96,12 +101,29 @@ async function main() {
   const pruneTimer = setInterval(() => void prune(), PRUNE_EVERY_MS);
   pruneTimer.unref();
 
-  let stopping = false;
+  // 👍/👎 on Revo's inline comments and resolved threads (GitHub sends no webhook for reactions).
+  let sweeping = false;
+  const sweep = async () => {
+    if (sweeping || stopping) return;
+    sweeping = true;
+    try {
+      const result = await sweepFeedback({ prisma, github: githubApp, log });
+      if (result.synced > 0) log.info(result, 'GitHub feedback read');
+    } catch (err) {
+      log.warn({ err: err instanceof Error ? err.message : String(err) }, 'feedback sweep failed');
+    } finally {
+      sweeping = false;
+    }
+  };
+  const sweepTimer = setInterval(() => void sweep(), FEEDBACK_SWEEP_EVERY_MS);
+  sweepTimer.unref();
+
   const shutdown = async (signal: string) => {
     if (stopping) return;
     stopping = true;
     stopHeartbeat();
     clearInterval(pruneTimer);
+    clearInterval(sweepTimer);
     log.info({ signal }, 'worker stopping; waiting for running reviews');
     await worker.close();
     await prisma.$disconnect();

@@ -22,7 +22,7 @@ import {
   type PullRequestInfo,
   type RepoRef,
 } from '@revo/github';
-import { reviewChanges, type ReviewEngine, type ReviewSettingsInput } from '@revo/review';
+import { reconcileWithPrior, reviewChanges, type ReviewEngine, type ReviewSettingsInput } from '@revo/review';
 import {
   CategorySchema,
   DEFAULT_REPO_SETTINGS,
@@ -35,6 +35,7 @@ import {
 import type { Logger } from '../logger';
 import { chooseEngine, type AiAccessConfig } from './ai-access';
 import { describeFailure } from './failure';
+import { syncPullRequestFeedback } from './feedback';
 import { codeSearcher, fetchChangedFiles, headFileReader } from './fetch';
 import { postInlineComments, renderResult, summaryInput } from './publish';
 import {
@@ -53,6 +54,7 @@ import {
   type LoadedRepo,
   type SpentUsage,
 } from './store';
+import { loadPriorFindings, locatePriors, resolveFixedThreads } from './track';
 
 export type ReviewDeps = {
   prisma: PrismaClient;
@@ -273,13 +275,23 @@ export async function runReviewJob(
       settings.ignoreGlobs,
       recent,
     );
+    // GitHub feedback first: problems people dismissed are neither carried over nor posted again.
+    const sync = await syncPullRequestFeedback(prisma, octokit, ref, {
+      id: pr.id,
+      number: live.number,
+    }).catch((err: unknown) => {
+      log.warn({ pr: live.number, err: errorText(err) }, 'could not read GitHub feedback');
+      return null;
+    });
+    const priors = await loadPriorFindings(prisma, pr.id);
+    const readFile = headFileReader(octokit, ref, live.headSha);
     const outcome = await reviewChanges({
       pr: { title: live.title, body: live.body },
       files,
       related: [],
       settings: { ...settings, model: choice.model },
       engine: choice.engine,
-      readFile: headFileReader(octokit, ref, live.headSha),
+      readFile,
       searchUsages: codeSearcher(octokit, ref),
     });
     if (outcome.status === 'done') spent = spentFrom(outcome.usage);
@@ -297,12 +309,37 @@ export async function runReviewJob(
       return { outcome: 'skipped', reviewId: review.id, reason: outcome.skipReason };
     }
 
+    // The previous review's open problems: found again, still in the code, or fixed by the new commits.
+    const tracked =
+      priors.length > 0
+        ? await locatePriors(priors, files, readFile).then(({ located, contents }) =>
+            reconcileWithPrior(outcome, located, {
+              threshold: settings.threshold,
+              contents,
+              categories: settings.categories,
+              ignoreGlobs: settings.ignoreGlobs.filter((g) => globError(g) === null),
+            }),
+          )
+        : { outcome, fixed: [], commentIds: new Map<number, number>() };
+    const done = tracked.outcome;
+    const resolvedThreads = sync ? await resolveFixedThreads(octokit, tracked.fixed, sync.threads, log) : 0;
+
     // Inline comments first, so the summary can link each finding to its thread.
     const posted = settings.inlineComments
-      ? await postInlineComments(octokit, ref, live.number, live.headSha, outcome, files, app, log)
-      : new Map<number, number>();
+      ? await postInlineComments(
+          octokit,
+          ref,
+          live.number,
+          live.headSha,
+          done,
+          files,
+          app,
+          log,
+          tracked.commentIds,
+        )
+      : new Map<number, number>(tracked.commentIds);
     const rendered = renderResult(
-      summaryInput(outcome, {
+      summaryInput(done, {
         previousScore: await previousScore(prisma, pr.id, before),
         settings,
         trigger: payload.trigger,
@@ -314,6 +351,7 @@ export async function runReviewJob(
         dashboardUrl: prUrl(pr.id),
         settingsUrl: `${deps.appUrl.replace(/\/$/, '')}/repos/${repo.id}/settings`,
         paidBy: choice.paidBy,
+        fixed: tracked.fixed,
       }),
     );
     const summaryCommentId = await upsertSummaryComment(
@@ -327,9 +365,9 @@ export async function runReviewJob(
     await check(
       review,
       resultCheck({
-        score: outcome.score,
-        label: outcome.label,
-        passed: outcome.passed,
+        score: done.score,
+        label: done.label,
+        passed: done.passed,
         summary: rendered.checkSummary,
         partialCoverage: rendered.partialCoverage,
       }),
@@ -339,10 +377,12 @@ export async function runReviewJob(
       repoId: repo.id,
       account: repo.installation,
       pullRequestId: pr.id,
-      outcome,
+      outcome: done,
       posted,
       summaryCommentId,
       aiSource: choice.aiSource,
+      fixedFindingIds: tracked.fixed.map((f) => f.id),
+      headSha: live.headSha,
     });
     spent = null;
     log.info(
@@ -350,9 +390,11 @@ export async function runReviewJob(
         repo: repo.fullName,
         pr: live.number,
         sha: live.headSha.slice(0, 7),
-        score: outcome.score,
-        findings: outcome.findings.length,
-        rejected: outcome.rejected.length,
+        score: done.score,
+        findings: done.findings.length,
+        rejected: done.rejected.length,
+        fixed: tracked.fixed.length,
+        resolvedThreads,
         inline: posted.size,
         costUsd: outcome.usage.costUsd,
         aiSource: choice.aiSource,
@@ -360,7 +402,7 @@ export async function runReviewJob(
       },
       'review done',
     );
-    return { outcome: 'done', reviewId: review.id, score: outcome.score, passed: outcome.passed };
+    return { outcome: 'done', reviewId: review.id, score: done.score, passed: done.passed };
   } catch (err) {
     const failure = describeFailure(err, runModel, {
       ...(accountKeyOf ? { accountKeyOf } : {}),
