@@ -4,10 +4,6 @@ import type { NextConfig } from 'next';
 // Next runs from apps/web; the monorepo root holds the lockfile and the workspace packages.
 const monorepoRoot = path.resolve(process.cwd(), '../..');
 
-// PostHog region: the ingestion and assets hosts behind /ingest (see src/instrumentation-client.ts).
-const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com';
-const POSTHOG_ASSETS = POSTHOG_HOST.replace('.i.posthog.com', '-assets.i.posthog.com');
-
 const securityHeaders = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'X-Frame-Options', value: 'DENY' },
@@ -28,15 +24,8 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
-  // Analytics through Revo's own domain, so ad blockers don't drop them.
-  async rewrites() {
-    return [
-      { source: '/ingest/static/:path*', destination: `${POSTHOG_ASSETS}/static/:path*` },
-      { source: '/ingest/array/:path*', destination: `${POSTHOG_ASSETS}/array/:path*` },
-      { source: '/ingest/:path*', destination: `${POSTHOG_HOST}/:path*` },
-    ];
-  },
-  // PostHog's API paths end with a slash; don't redirect them.
+  // The analytics proxy (/ingest → PostHog) lives in src/proxy.ts, which sends
+  // PostHog the visitor's IP. PostHog's API paths end with a slash; don't redirect them.
   skipTrailingSlashRedirect: true,
 };
 
