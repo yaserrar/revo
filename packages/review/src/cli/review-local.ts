@@ -68,7 +68,8 @@ const effort = EFFORTS.find((e) => e === values.effort) ?? fail(`Unknown effort 
 
 const engineKind = values.fake
   ? 'fake'
-  : (values.engine ?? process.env.REVO_ENGINE ?? (process.env.ANTHROPIC_API_KEY ? 'claude' : 'fake'));
+  : // `||`: an empty REVO_ENGINE= in .env means unset, as in the worker.
+    values.engine || process.env.REVO_ENGINE || (process.env.ANTHROPIC_API_KEY ? 'claude' : 'fake');
 let engine: ReviewEngine;
 if (engineKind === 'fake') engine = fakeEngine;
 else if (engineKind === 'claude') {

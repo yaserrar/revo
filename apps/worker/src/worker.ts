@@ -26,6 +26,12 @@ export function createReviewWorker(
   worker.on('failed', (job, err) =>
     deps.log.warn({ jobId: job?.id, attemptsMade: job?.attemptsMade, err: err.message }, 'job failed'),
   );
-  worker.on('error', (err) => deps.log.error({ err: err.message }, 'worker error'));
+  worker.on('error', (err) => deps.log.error({ err: errorText(err) }, 'worker error'));
   return worker;
+}
+
+/** Connection errors (Redis not running) have an empty message and only a code such as ECONNREFUSED. */
+function errorText(err: Error & { code?: string }): string {
+  if (err.message) return err.message;
+  return `${err.code ?? err.name}: cannot reach Redis (REDIS_URL); is it running?`;
 }

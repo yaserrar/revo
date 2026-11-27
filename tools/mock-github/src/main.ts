@@ -12,8 +12,9 @@ const { server, app } = createMockGithubServer({ baseUrl });
 
 // Webhooks go to the Revo web app: MOCK_WEBHOOK_URL, or APP_URL + /api/github/webhook.
 // Change it at runtime with POST /__mock/webhook { url, secret }.
+// `||`, not `??`: the .env written by setup:local has an empty MOCK_WEBHOOK_URL=.
 const webhookUrl =
-  process.env.MOCK_WEBHOOK_URL ??
+  process.env.MOCK_WEBHOOK_URL ||
   (process.env.APP_URL ? `${process.env.APP_URL.replace(/\/$/, '')}/api/github/webhook` : undefined);
 const secret = process.env.GITHUB_WEBHOOK_SECRET;
 if (webhookUrl && secret) app.webhookTarget = { url: webhookUrl, secret };
