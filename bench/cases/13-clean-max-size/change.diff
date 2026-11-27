@@ -1,0 +1,70 @@
+diff --git a/README.md b/README.md
+index b142c1d..404d8df 100644
+--- a/README.md
++++ b/README.md
+@@ -4,7 +4,7 @@ Drop a file, get a private link to share it. No sign-up.
+ 
+ **Live:** [dropwave.asrar.software](https://dropwave.asrar.software)
+ 
+-- Upload files up to 10 MB, with an optional link expiry (5 minutes to 30 days).
++- Upload files up to 20 MB, with an optional link expiry (5 minutes to 30 days).
+ - Share page with a preview for images, PDFs and text, and a download button.
+ - Email the link to up to 5 people, from the upload page or the share page.
+ - Every upload is checked by an AWS Lambda: its real size, and whether its content matches its declared type. Executables are rejected.
+@@ -26,7 +26,7 @@ Browser ─(5) POST /api/files/<id>/confirm ─────────▶ API
+ Steps 4 and 5 can arrive in either order. Whichever comes last makes the file available.
+ 
+ 1. **Upload URL.** The API validates the name, type and declared size, creates the row, and returns a presigned PUT URL. S3 only accepts the upload with the same `Content-Type`.
+-2. **File check.** S3 triggers the [`file-check`](apps/file-check) Lambda. It first checks the object's real size, which comes in the S3 event, because a presigned PUT accepts a body of any size. Then it reads the first 4 KB and detects the real format with [`file-type`](https://github.com/sindresorhus/file-type). Files that are empty, over 10 MB, executables, or whose content contradicts their declared type are rejected. It checks file types; it isn't an antivirus.
++2. **File check.** S3 triggers the [`file-check`](apps/file-check) Lambda. It first checks the object's real size, which comes in the S3 event, because a presigned PUT accepts a body of any size. Then it reads the first 4 KB and detects the real format with [`file-type`](https://github.com/sindresorhus/file-type). Files that are empty, over 20 MB, executables, or whose content contradicts their declared type are rejected. It checks file types; it isn't an antivirus.
+ 3. **Signed result.** The Lambda reports to the API with an HMAC-SHA256 signature over a timestamp and the raw body. The API compares it in constant time and refuses results older than 5 minutes, so a captured request can't be replayed.
+ 4. **Confirm.** The browser confirms the upload. The API checks that the size in S3 matches the declared size.
+ 5. **Outcome.** A clean file becomes `UPLOADED`. A rejected one is deleted from S3 and marked `REMOVED`. Downloads redirect to a short-lived presigned GET URL.
+diff --git a/apps/api/src/lib/consts.ts b/apps/api/src/lib/consts.ts
+index 45e152d..e84cd05 100644
+--- a/apps/api/src/lib/consts.ts
++++ b/apps/api/src/lib/consts.ts
+@@ -1,6 +1,6 @@
+ export const S3_UPLOAD_EXPIRES_IN = 60; // 1 minute in seconds
+ export const S3_DOWNLOAD_EXPIRES_IN = 60 * 60; // 1 hour in seconds
+-export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB in bytes
++export const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB in bytes
+ export const MAX_SHARE_RECIPIENTS = 5; // email addresses per share request
+ // Optional share-link expiry chosen at upload (keep in sync with apps/web/lib/consts.ts).
+ export const MIN_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes from now, so the upload can finish
+diff --git a/apps/file-check/README.md b/apps/file-check/README.md
+index 287ec65..cbec123 100644
+--- a/apps/file-check/README.md
++++ b/apps/file-check/README.md
+@@ -7,7 +7,7 @@ it with the declared `Content-Type`. It then reports to the API:
+ 
+ - **clean:** the size is within the limit, and the content matches or it's text (which
+   has no signature).
+-- **rejected:** the file is empty or over 10 MB, the content contradicts the declared
++- **rejected:** the file is empty or over 20 MB, the content contradicts the declared
+   type (an `.exe` sent as a PDF), or it's a Windows, Linux or macOS executable.
+ 
+ The size check matters because a presigned PUT accepts a body of any size: the API only
+diff --git a/apps/file-check/src/check.ts b/apps/file-check/src/check.ts
+index 3820d63..16401fc 100644
+--- a/apps/file-check/src/check.ts
++++ b/apps/file-check/src/check.ts
+@@ -4,7 +4,7 @@ export type Detected = { ext: string; mime: string } | undefined;
+ export type Verdict = { ok: true } | { ok: false; reason: string };
+ 
+ // Keep in sync with MAX_FILE_SIZE in apps/api/src/lib/consts.ts.
+-export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
++export const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+ 
+ const toMb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+ 
+diff --git a/apps/web/lib/consts.ts b/apps/web/lib/consts.ts
+index a1192ac..0f7875c 100644
+--- a/apps/web/lib/consts.ts
++++ b/apps/web/lib/consts.ts
+@@ -1,4 +1,4 @@
+-export const MAX_FILE_SIZE = 1024 * 1024 * 10; // 10MB
++export const MAX_FILE_SIZE = 1024 * 1024 * 20; // 20MB
+ // Email addresses per share request (keep in sync with apps/api/src/lib/consts.ts).
+ export const MAX_SHARE_RECIPIENTS = 5;
+ 

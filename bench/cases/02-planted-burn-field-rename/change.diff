@@ -1,0 +1,26 @@
+diff --git a/apps/api/src/drops/drops.service.ts b/apps/api/src/drops/drops.service.ts
+index e9600a1..25369e9 100644
+--- a/apps/api/src/drops/drops.service.ts
++++ b/apps/api/src/drops/drops.service.ts
+@@ -141,7 +141,7 @@ export class DropsService {
+     const summary = {
+       id: drop.id,
+       protected: drop.passwordHash !== null,
+-      burnAfterDownload: drop.burnAfterDownload,
++      burnOnce: drop.burnAfterDownload,
+       expiresAt: drop.expiresAt,
+     };
+ 
+diff --git a/apps/api/test/drops.e2e-spec.ts b/apps/api/test/drops.e2e-spec.ts
+index 15e1260..5126c44 100644
+--- a/apps/api/test/drops.e2e-spec.ts
++++ b/apps/api/test/drops.e2e-spec.ts
+@@ -306,7 +306,7 @@ describe.skipIf(!process.env.E2E_DATABASE_URL)('drops (e2e)', () => {
+       expect(locked.body).toEqual({
+         id: drop.dropId,
+         protected: true,
+-        burnAfterDownload: false,
++        burnOnce: false,
+         expiresAt: null,
+         locked: true,
+       });

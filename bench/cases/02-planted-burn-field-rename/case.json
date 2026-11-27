@@ -1,0 +1,33 @@
+{
+  "id": "02-planted-burn-field-rename",
+  "kind": "planted",
+  "title": "Rename the burn flag in the drop info response",
+  "body": "Shorter field name in GET /drops/:id. The e2e test is updated.",
+  "base": {
+    "sha": "892ddf8f6eb131ef8896c8ceb2167872d6fbceb5"
+  },
+  "source": {
+    "commit": "28bc61fa0898d76ca1649f9e2fcd1b21f22b3404",
+    "parent": "53e6cdc30af8790c92cdd9bb2589068525998fe1",
+    "message": "breaking change",
+    "note": "Planted by the user (original title \"breaking change\"). Its real parent 53e6cdc only differs in apps/api/src/lib/format.ts, so it is reviewed on 892ddf8 to keep one bug per case."
+  },
+  "note": "The API renames burnAfterDownload to burnOnce in GET /drops/:id; the web app still reads burnAfterDownload.",
+  "expected": [
+    {
+      "id": "burn-field-rename",
+      "file": "apps/api/src/drops/drops.service.ts",
+      "lineStart": 144,
+      "lineEnd": 144,
+      "severity": "major",
+      "description": "GET /drops/:id now returns burnOnce instead of burnAfterDownload, but the web app (types/drop.ts, shared-bundle-card.tsx, shared-file-card.tsx, unlock-card.tsx) still reads drop.burnAfterDownload: burn-after-download links look like normal links, previews and per-file downloads are offered and then refused.",
+      "alsoAt": [
+        {
+          "file": "apps/api/test/drops.e2e-spec.ts",
+          "lineStart": 309,
+          "lineEnd": 309
+        }
+      ]
+    }
+  ]
+}

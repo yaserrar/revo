@@ -1,0 +1,26 @@
+{
+  "id": "03-planted-burn-race",
+  "kind": "planted",
+  "title": "Simplify consume() for burn-after-download drops",
+  "body": "",
+  "base": {
+    "sha": "892ddf8f6eb131ef8896c8ceb2167872d6fbceb5"
+  },
+  "source": {
+    "commit": "9faac53f4e51b468595ae2d7bdd44fdc56a5a52e",
+    "parent": "28bc61fa0898d76ca1649f9e2fcd1b21f22b3404",
+    "message": "ANother breaking change",
+    "note": "Planted by the user (original title \"ANother breaking change\"). Applies cleanly on 892ddf8; reviewed there to keep one bug per case."
+  },
+  "note": "The atomic guarded updateMany is replaced by findUnique + update.",
+  "expected": [
+    {
+      "id": "burn-race",
+      "file": "apps/api/src/drops/drops.service.ts",
+      "lineStart": 463,
+      "lineEnd": 474,
+      "severity": "major",
+      "description": "consume() now reads, checks, then writes (findUnique + update) instead of one UPDATE guarded by consumedAt IS NULL: two downloads at the same moment both pass the check, so a burn-after-download link can be downloaded twice."
+    }
+  ]
+}

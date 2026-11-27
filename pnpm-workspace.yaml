@@ -3,6 +3,7 @@ packages:
   - packages/*
   - tools/*
   - eval
+  - bench
 
 autoInstallPeers: true
 strictPeerDependencies: false

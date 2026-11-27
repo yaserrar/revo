@@ -1,0 +1,13 @@
+diff --git a/apps/api/src/lib/format.ts b/apps/api/src/lib/format.ts
+index 17ecfa8..050ae7d 100644
+--- a/apps/api/src/lib/format.ts
++++ b/apps/api/src/lib/format.ts
+@@ -1,7 +1,7 @@
+ const UNITS = ['B', 'KB', 'MB', 'GB'];
+ 
+ /** 1536 → "1.5 KB", like formatBytes in the web app. */
+-export function formatBytes(bytes: number): string {
++export function formatBytes(bytes: any): any {
+   if (bytes < 1024) return `${bytes} B`;
+   const exponent = Math.min(
+     Math.floor(Math.log(bytes) / Math.log(1024)),

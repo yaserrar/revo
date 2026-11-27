@@ -1,0 +1,20 @@
+diff --git a/apps/api/src/lib/drop-paths.ts b/apps/api/src/lib/drop-paths.ts
+index 998d5d8..cdd7334 100644
+--- a/apps/api/src/lib/drop-paths.ts
++++ b/apps/api/src/lib/drop-paths.ts
+@@ -59,8 +59,13 @@ export function zipFileName(paths: string[], dropId: string): string {
+ 
+ /** "photos/2024/a.jpg" → ["photos", "photos/2024"]. */
+ function foldersOf(path: string): string[] {
+-  const segments = path.split('/').slice(0, -1);
+-  return segments.map((_, index) => segments.slice(0, index + 1).join('/'));
++  const folders: string[] = [];
++  let end = path.indexOf('/');
++  for (let i = 1; i < path.split('/').length - 1; i++) {
++    folders.push(path.slice(0, end));
++    end = path.indexOf('/', end + 1);
++  }
++  return folders;
+ }
+ 
+ /**

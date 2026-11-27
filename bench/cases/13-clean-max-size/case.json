@@ -1,0 +1,16 @@
+{
+  "id": "13-clean-max-size",
+  "kind": "clean",
+  "title": "feat(aTiYKFf4): Increase max size in teh whole app from 10M to 20M",
+  "body": "The upload limit is now 20 MB instead of 10 MB everywhere, but I couldn't run any tests, lint or typecheck because the automated runner blocked every command I tried.\n\n**What I changed:** each app has its own copy of the limit, and all three now say 20 MB:\n- `apps/web/lib/consts.ts`: the upload screen checks this before uploading, and it sets the \"Up to … each\" text and the \"Larger than …\" error.\n- `apps/api/src/lib/consts.ts`: the API checks the size the browser reports when it asks for an upload link.\n- `apps/file-check/src/check.ts`: the AWS Lambda checks the real size of the stored file. It has to match the API value.\n- `README.md` and `apps/file-check/README.md`: the \"10 MB\" wording now says 20 MB.\n\nI left the Docker log rotation setting (`max-size: \"10m\"` in the docker-compose files) alone, since it's about log files, not uploads.\n\n**To do by hand:**\n1. Run `npm run lint`, `npm run check-types`, and the tests for `apps/file-check` and `apps/api`. The file-check tests read the limit from the constant and use 50 MB as their over-limit case, so they should still pass.\n2. Redeploy the file-check Lambda along with the API and web app. If the Lambda keeps the old code, it will reject files between 10 and 20 MB after they've already uploaded.\n3. Check that no storage rule or proxy outside this repo still caps uploads at 10 MB. I found none here: files go straight to storage through a pre-signed link.\n\nTrello: https://trello.com/c/aTiYKFf4/3-increase-max-size-in-teh-whole-app-from-10m-to-20m",
+  "base": {
+    "sha": "0b6200d27dcad068fe2c9017732f34b1c873c738"
+  },
+  "source": {
+    "commit": "eb18118ea0bb365c44213c476bd082b4fe5ec0eb",
+    "parent": "0b6200d27dcad068fe2c9017732f34b1c873c738",
+    "message": "feat(aTiYKFf4): Increase max size in teh whole app from 10M to 20M"
+  },
+  "note": "Raises the upload limit from 10 MB to 20 MB in every copy of the constant.",
+  "expected": []
+}

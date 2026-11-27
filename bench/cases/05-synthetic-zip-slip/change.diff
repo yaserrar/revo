@@ -1,0 +1,28 @@
+diff --git a/apps/api/src/lib/drop-paths.ts b/apps/api/src/lib/drop-paths.ts
+index 998d5d8..07cb774 100644
+--- a/apps/api/src/lib/drop-paths.ts
++++ b/apps/api/src/lib/drop-paths.ts
+@@ -4,9 +4,10 @@ const MAX_SEGMENT_LENGTH = 255; // most file systems' limit for one name
+ 
+ /**
+  * A file's path inside its drop, as sent by the browser ("photos/2024/a.jpg"),
+- * made safe to show and to use as a zip entry: forward slashes only, no empty,
+- * "." or ".." segments, no control characters. Null when nothing valid is left,
+- * or the path tries to leave its folder.
++ * made safe to show and to use as a zip entry: forward slashes only, no empty
++ * or "." segments, no control characters. Some zip tools write paths such as
++ * "photos/../cover.jpg"; a ".." after a folder stays inside the drop, so it is
++ * kept. Null when nothing valid is left, or the path starts by leaving its folder.
+  */
+ export function normalizeRelativePath(input: string): string | null {
+   // Control characters would hide parts of the name or break headers and logs.
+@@ -15,7 +16,8 @@ export function normalizeRelativePath(input: string): string | null {
+   const segments: string[] = [];
+   for (const segment of input.replace(/\\/g, '/').split('/')) {
+     if (segment === '' || segment === '.') continue;
+-    if (segment === '..') return null;
++    // A leading ".." would leave the drop; after a folder it stays inside it.
++    if (segment === '..' && segments.length === 0) return null;
+     if (segment.trim() === '' || segment.length > MAX_SEGMENT_LENGTH)
+       return null;
+     segments.push(segment);

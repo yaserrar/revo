@@ -17,6 +17,7 @@
     "format:check": "prettier --check .",
     "review:local": "pnpm --filter @revo/review review:local",
     "eval": "pnpm --filter @revo/eval eval",
+    "bench": "pnpm --filter @revo/bench bench",
     "db:generate": "pnpm --filter @revo/db db:generate",
     "db:migrate": "pnpm --filter @revo/db db:migrate",
     "db:deploy": "pnpm --filter @revo/db db:deploy",

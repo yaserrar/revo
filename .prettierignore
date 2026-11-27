@@ -10,3 +10,4 @@ apps/web/components.json
 playwright-report
 test-results
 eval/demo-repo
+bench/results

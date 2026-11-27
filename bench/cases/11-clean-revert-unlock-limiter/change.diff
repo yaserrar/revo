@@ -1,0 +1,35 @@
+diff --git a/apps/api/src/drops/drops.service.ts b/apps/api/src/drops/drops.service.ts
+index 0db7c4e..eff92b8 100644
+--- a/apps/api/src/drops/drops.service.ts
++++ b/apps/api/src/drops/drops.service.ts
+@@ -152,7 +152,7 @@ export class DropsService {
+     return {
+       ...summary,
+       locked: false,
+-      unlockExpiresAt: unlockedUntil,
++      unlockedUntil,
+       createdAt: drop.createdAt,
+       files: drop.files.map(
+         ({ id, path, filename, contentType, size, status }) => ({
+diff --git a/apps/web/lib/limit.ts b/apps/web/lib/limit.ts
+index 85162a4..4d00f4b 100644
+--- a/apps/web/lib/limit.ts
++++ b/apps/web/lib/limit.ts
+@@ -17,11 +17,12 @@ export function createLimiter(concurrency: number) {
+   return <T>(task: () => Promise<T>) =>
+     new Promise<T>((resolve, reject) => {
+       queue.push(() => {
+-        task().then((value) => {
+-          active -= 1;
+-          next();
+-          resolve(value);
+-        }, reject);
++        task()
++          .then(resolve, reject)
++          .finally(() => {
++            active -= 1;
++            next();
++          });
+       });
+       next();
+     });

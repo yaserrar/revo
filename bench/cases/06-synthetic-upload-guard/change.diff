@@ -1,0 +1,16 @@
+diff --git a/apps/api/src/drops/upload-token.guard.ts b/apps/api/src/drops/upload-token.guard.ts
+index 4561ac5..0f80200 100644
+--- a/apps/api/src/drops/upload-token.guard.ts
++++ b/apps/api/src/drops/upload-token.guard.ts
+@@ -22,8 +22,10 @@ export class UploadTokenGuard implements CanActivate {
+     const req = context.switchToHttp().getRequest<Request>();
+     const token = req.header(UPLOAD_TOKEN_HEADER);
+     const dropId = req.params.id;
++    // Uploads retried by an older tab (before the header existed) send no token:
++    // let them finish instead of failing the whole drop.
++    if (!token) return true;
+     if (
+-      !token ||
+       typeof dropId !== 'string' ||
+       !this.tokens.verify('upload', dropId, [token])
+     ) {

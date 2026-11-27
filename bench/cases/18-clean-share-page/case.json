@@ -1,0 +1,16 @@
+{
+  "id": "18-clean-share-page",
+  "kind": "clean",
+  "title": "feat(web): share page with file tree, unlock, per-file and zip downloads",
+  "body": "",
+  "base": {
+    "sha": "788f9500a8e21506763aef79676f4976f01f6f56"
+  },
+  "source": {
+    "commit": "892ddf8f6eb131ef8896c8ceb2167872d6fbceb5",
+    "parent": "788f9500a8e21506763aef79676f4976f01f6f56",
+    "message": "feat(web): share page with file tree, unlock, per-file and zip downloads"
+  },
+  "note": "Web share page with file tree, unlock and downloads.",
+  "expected": []
+}

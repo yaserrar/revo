@@ -1,0 +1,9 @@
+[
+  {
+    "id": "zip-error-content-type",
+    "file": "apps/api/src/drops/drops.service.ts",
+    "keywords": ["content-type", "application/zip"],
+    "description": "\"Zip error response keeps Content-Type: application/zip\" (downloadAll's catch block, about line 410).",
+    "why": "Not a bug: NestJS 12's ExpressAdapter.reply() resets Content-Type to JSON for error bodies. Revo posted it on dropwave PR #5."
+  }
+]

@@ -1,0 +1,1716 @@
+diff --git a/README.md b/README.md
+index 404d8df..0c87fa4 100644
+--- a/README.md
++++ b/README.md
+@@ -1,58 +1,91 @@
+ # Dropwave
+ 
+-Drop a file, get a private link to share it. No sign-up.
++Drop a file, a few, or a whole folder, get one private link to share it. No sign-up.
+ 
+ **Live:** [dropwave.asrar.software](https://dropwave.asrar.software)
+ 
+-- Upload files up to 20 MB, with an optional link expiry (5 minutes to 30 days).
+-- Share page with a preview for images, PDFs and text, and a download button.
++- One link for up to 20 files (or a folder): 20 MB per file, 100 MB in all, 3 uploads at a time with progress per file.
++- Optional link expiry (5 minutes to 30 days), password, and "delete after the first download".
++- Share page with the files as a tree, a preview for images, PDFs and text, a download per file, and "Download all" as a zip.
+ - Email the link to up to 5 people, from the upload page or the share page.
+-- Every upload is checked by an AWS Lambda: its real size, and whether its content matches its declared type. Executables are rejected.
+-- Expired files are deleted automatically.
++- Every file is checked by an AWS Lambda: its real size, and whether its content matches its declared type. Executables are rejected.
++- Expired links are deleted automatically, files and all.
+ 
+ ## How it works
+ 
+-File bytes never pass through the API. The browser uploads straight to S3 with a presigned URL, and the API only keeps track of each file.
++What one link shares is a **drop**: one file, several files, or a folder, each file with its path inside the drop (`photos/2024/a.jpg`). Everything dropped (or picked, or pasted) at once becomes one drop. The link is `/s/<drop id>`, and expiry, password and "delete after the first download" apply to the whole drop.
++
++Upload bytes never pass through the API. The browser uploads straight to S3 with presigned URLs, and the API only keeps track of each file.
+ 
+ ```
+-Browser ─(1) POST /api/files/generate ─────────────▶ API ──▶ Postgres   row: PENDING
+-Browser ◀──── presigned PUT URL (valid 60 s) ─────── API
+-Browser ─(2) PUT the file ─────────────────────────▶ S3  uploads/<id>
+-S3 ──────(3) object created ───────────────────────▶ Lambda file-check
++Browser ─(1) POST /api/drops ──────────────────────▶ API ──▶ Postgres   drop + files: PENDING
++Browser ◀──── upload token + a PUT URL per file ──── API
++Browser ─(2) PUT each file, 3 at a time ───────────▶ S3  uploads/<file id>
++S3 ──────(3) object created ───────────────────────▶ Lambda file-check   (per file)
+ Lambda ──(4) signed POST /api/internal/scan-result ▶ API   clean or rejected
+-Browser ─(5) POST /api/files/<id>/confirm ─────────▶ API   PENDING → SCANNING → UPLOADED
++Browser ─(5) POST /api/drops/<id>/files/<file>/confirm ▶ API   PENDING → SCANNING → UPLOADED
+ ```
+ 
+ Steps 4 and 5 can arrive in either order. Whichever comes last makes the file available.
+ 
+-1. **Upload URL.** The API validates the name, type and declared size, creates the row, and returns a presigned PUT URL. S3 only accepts the upload with the same `Content-Type`.
++1. **Upload URLs.** The API checks the paths, types and declared sizes (at most 20 files, 20 MB each, 100 MB together; no path twice, ignoring case, and no file named like a folder of another, since the zip couldn't be extracted), creates the drop and its files, and returns a presigned PUT URL per file (valid 60 s) and an upload token. S3 only accepts each upload with the same `Content-Type`. A file whose turn comes after its URL expired asks for a fresh one. The upload routes need the token (`x-upload-token`), so the share link alone can't add, replace or remove files.
+ 2. **File check.** S3 triggers the [`file-check`](apps/file-check) Lambda. It first checks the object's real size, which comes in the S3 event, because a presigned PUT accepts a body of any size. Then it reads the first 4 KB and detects the real format with [`file-type`](https://github.com/sindresorhus/file-type). Files that are empty, over 20 MB, executables, or whose content contradicts their declared type are rejected. It checks file types; it isn't an antivirus.
+ 3. **Signed result.** The Lambda reports to the API with an HMAC-SHA256 signature over a timestamp and the raw body. The API compares it in constant time and refuses results older than 5 minutes, so a captured request can't be replayed.
+-4. **Confirm.** The browser confirms the upload. The API checks that the size in S3 matches the declared size.
+-5. **Outcome.** A clean file becomes `UPLOADED`. A rejected one is deleted from S3 and marked `REMOVED`. Downloads redirect to a short-lived presigned GET URL.
++4. **Confirm.** The browser confirms each upload. The API checks that the size in S3 matches the declared size. A file that fails to upload, or that the user removes from the list, is taken out of the drop (`DELETED`).
+ 
+-| Status     | Meaning                                       |
+-| ---------- | --------------------------------------------- |
+-| `PENDING`  | Upload URL issued, upload not confirmed yet   |
+-| `SCANNING` | Confirmed, waiting for the Lambda's verdict   |
+-| `UPLOADED` | Passed the check; can be downloaded or shared |
+-| `REMOVED`  | Failed the check; the S3 object is deleted    |
++Uploads start as soon as files are dropped, so the link is ready in seconds. Any file can be removed from the list while the drop uploads; once the link is ready, uploaded files can still be removed from it (deleted from S3) as long as one stays, for as long as the page keeps the upload token (1 hour).
++5. **Outcome.** A clean file becomes `UPLOADED`. A rejected one is deleted from S3 and marked `REMOVED`: the share page lists it as removed, and the drop's other files stay available. A drop stays hidden (404) while any of its files is `PENDING`, so a link never shows a half-finished upload. Downloads redirect to a short-lived presigned GET URL; "Download all" streams a zip from the API.
+ 
+-A cron job in the API deletes expired files every 10 minutes, S3 objects first and then their rows.
++| Status     | Meaning                                                                                        |
++| ---------- | ---------------------------------------------------------------------------------------------- |
++| `PENDING`  | Upload URL issued, upload not confirmed yet                                                    |
++| `SCANNING` | Confirmed, waiting for the Lambda's verdict                                                    |
++| `UPLOADED` | Passed the check; can be downloaded or shared                                                  |
++| `REMOVED`  | Failed the check; the S3 object is deleted                                                     |
++| `DELETED`  | Taken out of its drop, or downloaded from a burn-after-download link; the S3 object is deleted |
+ 
+-## API
++A cron job in the API deletes expired drops every 10 minutes: every file's S3 object first, then the rows. Another, every minute, deletes the files of burn-after-download links downloaded one file at a time, once the download URL has expired (2 minutes after the download). A "Download all" zip deletes its files itself when it ends, so a slow client is never cut off; that job only sweeps up after a zip cut short by a restart, 6 hours later (`Drop.consumedBy` says which download used the link).
++
++Links created before drops existed were migrated to one-file drops whose id is the file's id, so `/s/<id>` links already sent keep working.
++
++### Password-protected links
+ 
+-| Method | Route                       | Does                                                                    |
+-| ------ | --------------------------- | ----------------------------------------------------------------------- |
+-| `POST` | `/api/files/generate`       | Creates the file and returns an upload URL (3 per minute per IP)        |
+-| `POST` | `/api/files/:id/confirm`    | Checks the uploaded size and starts waiting for the check               |
+-| `GET`  | `/api/files/:id`            | File info for the share page                                            |
+-| `GET`  | `/api/files/:id/preview`    | URL that displays an image, PDF or text file                            |
+-| `GET`  | `/api/files/:id/download`   | Redirects to a download URL                                             |
+-| `POST` | `/api/files/:id/share`      | Emails the link to up to 5 addresses (5 requests per 10 minutes per IP) |
+-| `POST` | `/api/internal/scan-result` | Verdicts from the Lambda; HMAC-signed                                   |
++- Only a **scrypt** hash of the password is stored (random salt, N=16384, r=8, p=1), compared in constant time. The password is 4 to 128 characters.
++- Until it's entered, the API answers the share page with the bare minimum: that the link is protected, when it expires, and whether it works once. No names, sizes or file count. Previews, downloads and "Download all" answer `401`.
++- `POST /api/drops/:id/unlock` checks the password and sets an **unlock cookie**: an HMAC-signed token (drop id + expiry) valid **15 minutes**, `HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS, and scoped to `Path=/api/drops/<id>`, so it only goes to that link's routes. Plain `<a href>` downloads carry it too. When it expires, the page asks for the password again.
++- Guessing is limited twice: **5 wrong passwords per link per 10 minutes**, whoever sends them (counted atomically in Postgres, so parallel guesses can't slip through), and 10 attempts per IP per 10 minutes across all links. The flip side: someone with the link can lock the recipient out for 10 minutes by guessing.
++- Emailing a protected link names nothing and never includes the password (the API doesn't have it). Send it some other way.
++- The token key is derived from `SCAN_RESULT_SECRET` with a fixed label, so tokens can't be confused with scan-result signatures and no new secret is needed. Rotating that secret logs every browser out of protected links.
+ 
+-The other public routes allow 20 requests per minute per IP, and the Lambda's route isn't rate-limited. Behind Cloudflare, the client IP comes from `CF-Connecting-IP`.
++### Delete after the first download
++
++- The first download **consumes** the drop atomically: one `UPDATE … WHERE consumedAt IS NULL`. Of two downloads at the same moment, exactly one wins; the other gets `410`, and the share page then says the files were already downloaded.
++- One file: the download consumes the drop and redirects to a presigned GET URL that lasts **60 seconds**. A presigned URL can be reused until it expires, so "once" means one URL, valid for one minute: whoever holds it can fetch the file again during that minute. The object is deleted once that minute is over (cron, every minute).
++- Several files: only **"Download all"** is offered, and it consumes the drop. Per-file downloads would use the link up on the first file. The zip streams through the API, so the files are deleted as soon as it ends, however long it takes. If S3 fails before the first byte, the drop isn't consumed and the download can be retried; once bytes were sent, an interrupted download still uses the link up and deletes the files.
++- **No previews**, so the content is fetched exactly once, by its download.
++- `HEAD` requests (link checkers, proxies, download managers) run the download's checks without using the link up, and get no download URL.
++
++### Download all
++
++`GET /api/drops/:id/download` streams a zip of every available file under its path (named after the folder, or `dropwave-<id>.zip`). It reads one S3 object at a time and pipes it through [archiver](https://github.com/archiverjs/node-archiver) with backpressure, so memory stays flat whatever the size. Already-compressed formats (JPEG, PNG, PDF, Office, video…) are stored as they are; the rest is deflated. It's available once no file is still being checked.
++
++## API
++
++| Method   | Route                                     | Does                                                                            |
++| -------- | ----------------------------------------- | ------------------------------------------------------------------------------- |
++| `POST`   | `/api/drops`                              | Creates a drop: upload URLs and an upload token (3 per minute per IP)           |
++| `POST`   | `/api/drops/:id/files/:fileId/upload-url` | A fresh upload URL for a file still pending (upload token)                      |
++| `POST`   | `/api/drops/:id/files/:fileId/confirm`    | Checks the uploaded size and starts waiting for the check (upload token)        |
++| `DELETE` | `/api/drops/:id/files/:fileId`            | Takes a file out of its drop (upload token)                                     |
++| `GET`    | `/api/drops/:id`                          | Info for the share page; only "protected" and the expiry until unlocked         |
++| `POST`   | `/api/drops/:id/unlock`                   | Checks the password, sets the unlock cookie (see above for the limits)          |
++| `GET`    | `/api/drops/:id/files/:fileId/preview`    | URL that displays an image, PDF or text file (not on burn-after-download links) |
++| `GET`    | `/api/drops/:id/files/:fileId/download`   | Redirects to a download URL (`HEAD`: the checks only, never uses the link up)   |
++| `GET`    | `/api/drops/:id/download`                 | "Download all": streams a zip (`HEAD`: the checks and headers only)             |
++| `POST`   | `/api/drops/:id/share`                    | Emails the link to up to 5 addresses (5 requests per 10 minutes per IP)         |
++| `POST`   | `/api/internal/scan-result`               | Verdicts from the Lambda; HMAC-signed                                           |
++
++The upload-token routes allow 60 requests per minute per IP (a drop has up to 20 files), the other public routes 20, and the Lambda's route isn't rate-limited. Behind Cloudflare, the client IP comes from `CF-Connecting-IP`. A `410` carries a `reason`: `expired`, or `consumed` for a burn-after-download link already used.
+ 
+ ## Stack
+ 
+@@ -71,7 +104,7 @@ The other public routes allow 20 requests per minute per IP, and the Lambda's ro
+ ```
+ apps/
+   web/          Next.js app: upload page and share page (/s/<id>)
+-  api/          NestJS API: files, S3, emails, file-check results, cleanup cron
++  api/          NestJS API: drops and files, S3, zips, emails, file-check results, cleanup crons
+   file-check/   AWS Lambda that checks every upload (has its own README)
+ packages/
+   eslint-config/, typescript-config/   shared config
+@@ -84,7 +117,7 @@ DEPLOY.md            server setup, step by step
+ 
+ You need Node.js 24+ with npm 11, a PostgreSQL database, and an AWS account with:
+ 
+-- **An S3 bucket.** Its CORS rule must allow `http://localhost:3000` (see [DEPLOY.md](DEPLOY.md#4-s3-cors)).
++- **An S3 bucket.** Its CORS rule must allow `http://localhost:3000` (see [DEPLOY.md](DEPLOY.md#4-s3-cors)), or whichever origin the web app runs on.
+ - **Credentials** that can put, get and delete objects in the bucket, and send email with SES.
+ - **A domain or address verified in SES** to send from. While SES is in sandbox mode, it only sends to verified addresses.
+ 
+@@ -106,7 +139,8 @@ You need Node.js 24+ with npm 11, a PostgreSQL database, and an AWS account with
+    AWS_SECRET_ACCESS_KEY=...
+    # openssl rand -hex 32; the Lambda signs its results with the same value.
+    SCAN_RESULT_SECRET=...
+-   # Links in emails point here.
++   # Links in emails point here. Also the only origin allowed to call the API
++   # with cookies (the unlock cookie), so it must be the web app's origin.
+    APP_URL=http://localhost:3000
+    MAIL_FROM=Dropwave <noreply@your-domain.com>
+    ```
+@@ -132,7 +166,17 @@ You need Node.js 24+ with npm 11, a PostgreSQL database, and an AWS account with
+    npm run dev
+    ```
+ 
+-Locally, uploads stay in `SCANNING` unless a file-check Lambda can reach your API: it reports to the URL in its `SCAN_RESULT_URL`. To try the rest of the flow, mark a file as checked in your database:
++Locally, uploads stay in `SCANNING` unless a file-check Lambda can reach your API: it reports to the URL in its `SCAN_RESULT_URL`. To try the rest of the flow, play the Lambda: post a verdict signed with your local `SCAN_RESULT_SECRET` (the file id is in the `POST /api/drops` response):
++
++```sh
++body='{"key":"uploads/<file id>","verdict":"clean"}'
++ts=$(date +%s)
++sig=$(printf '%s.%s' "$ts" "$body" | openssl dgst -sha256 -hmac "$SCAN_RESULT_SECRET" -hex | sed 's/.* //')
++curl -X POST http://localhost:4000/api/internal/scan-result -H 'content-type: application/json' \
++  -H "x-dropwave-timestamp: $ts" -H "x-dropwave-signature: sha256=$sig" -d "$body"
++```
++
++Or mark a file as checked in your database:
+ 
+ ```sql
+ UPDATE files SET status = 'UPLOADED' WHERE id = '<id>';
+@@ -144,8 +188,15 @@ UPDATE files SET status = 'UPLOADED' WHERE id = '<id>';
+ npm run lint                  # every app
+ npm run check-types           # web and file-check
+ npm run test -w file-check    # the Lambda's rules, against real file signatures
++npm run test -w api           # tokens, password hashing, paths, zip streaming, emails
++# Drops end to end (unlock, burn race, HEAD, purge timing, zip) against a throwaway database; S3 and SES are faked.
++createdb dropwave_e2e
++(cd apps/api && DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dropwave_e2e npx prisma migrate deploy)
++E2E_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dropwave_e2e npm run test:e2e -w api
+ ```
+ 
++The e2e suite only runs when `E2E_DATABASE_URL` is set, and never touches the `DATABASE_URL` in `.env`.
++
+ ## Deploying
+ 
+ Every push to `main` builds the `api` and `web` images, pushes them to GHCR, and restarts the stack on the server. The API applies pending database migrations when it starts.
+diff --git a/apps/web/app/s/[id]/page.tsx b/apps/web/app/s/[id]/page.tsx
+index ae93567..0aad89d 100644
+--- a/apps/web/app/s/[id]/page.tsx
++++ b/apps/web/app/s/[id]/page.tsx
+@@ -2,12 +2,12 @@ import type { Metadata } from "next";
+ import Link from "next/link";
+ import { ArrowRight } from "iconsax-react";
+ import { PageBackground } from "@/components/page-background";
+-import { SharedFile } from "@/components/share/shared-file";
++import { SharedDrop } from "@/components/share/shared-drop";
+ import { SiteHeader } from "@/components/site-header";
+ 
+ export const metadata: Metadata = {
+-  title: "Download a file · Dropwave",
+-  description: "Someone shared a file with you on Dropwave.",
++  title: "Shared with you · Dropwave",
++  description: "Someone shared files with you on Dropwave.",
+   // Share links are private; keep them out of search results.
+   robots: { index: false, follow: false },
+ };
+@@ -16,12 +16,12 @@ export default async function SharePage({ params }: PageProps<"/s/[id]">) {
+   const { id } = await params;
+ 
+   return (
+-    <div className="relative isolate flex min-h-dvh flex-col overflow-hidden">
++    <div className="relative isolate flex min-h-dvh flex-col overflow-clip">
+       <PageBackground />
+       <SiteHeader />
+ 
+-      <main id="main" className="mx-auto w-full max-w-md flex-1 px-4 pt-10 pb-20 sm:pt-20">
+-        <SharedFile id={id} />
++      <main id="main" className="mx-auto w-full max-w-2xl flex-1 px-4 pt-10 pb-20 sm:pt-20">
++        <SharedDrop id={id} />
+ 
+         <p className="animate-fade-up mt-8 text-center text-sm text-muted-foreground [animation-delay:400ms]">
+           Have something to send?{" "}
+diff --git a/apps/web/components/share/file-preview-dialog.tsx b/apps/web/components/share/file-preview-dialog.tsx
+index faf10b5..73a064a 100644
+--- a/apps/web/components/share/file-preview-dialog.tsx
++++ b/apps/web/components/share/file-preview-dialog.tsx
+@@ -13,27 +13,34 @@ import {
+   DialogTitle,
+   DialogTrigger,
+ } from "@/components/ui/dialog";
+-import { useGetPreview, useGetPreviewText } from "@/hooks/files";
++import { useGetPreview, useGetPreviewText } from "@/hooks/drops";
+ import { iconForFile } from "@/lib/file-icons";
+ import { fileTypeLabel, formatBytes } from "@/lib/format";
+ import { previewKind, type PreviewKind } from "@/lib/preview";
+ import { cn } from "@/lib/utils";
+-import type { FileInfo } from "@/types/file";
++import type { DropFile } from "@/types/drop";
+ 
+ // Big text files would make the page sluggish; show the start and offer the download.
+ const MAX_TEXT_CHARS = 100_000;
+ 
+-/** "Preview" button + dialog. Renders nothing for types the browser can't show. */
++/**
++ * "Preview" button + dialog. Renders nothing for types the browser can't show.
++ * `compact` is the icon-only button of a row in a file list.
++ */
+ export function FilePreviewDialog({
++  dropId,
+   file,
+   downloadUrl,
++  compact = false,
+ }: {
+-  file: FileInfo;
++  dropId: string;
++  file: DropFile;
+   downloadUrl: string;
++  compact?: boolean;
+ }) {
+   const [open, setOpen] = React.useState(false);
+   const kind = previewKind(file.contentType);
+-  const preview = useGetPreview(file.id, open && kind !== null);
++  const preview = useGetPreview(dropId, file.id, open && kind !== null);
+   const FileIcon = iconForFile(file.filename, file.contentType);
+ 
+   if (!kind) return null;
+@@ -41,19 +48,31 @@ export function FilePreviewDialog({
+   return (
+     <Dialog open={open} onOpenChange={setOpen}>
+       <DialogTrigger asChild>
+-        <Button
+-          disabled={file.status !== "UPLOADED"}
+-          variant="outline"
+-          size="lg"
+-          className={cn(
+-            "h-11 rounded-lg px-3.5",
+-            file.status !== "UPLOADED" && "cursor-not-allowed opacity-50",
+-          )}
+-          aria-label="Preview file"
+-        >
+-          <Eye className="size-4.5" color="currentColor" />
+-          <span className="max-sm:hidden">Preview</span>
+-        </Button>
++        {compact ? (
++          <Button
++            disabled={file.status !== "UPLOADED"}
++            variant="ghost"
++            size="icon-sm"
++            className="text-muted-foreground"
++            aria-label={`Preview ${file.filename}`}
++          >
++            <Eye variant="Bulk" className="size-4" color="currentColor" />
++          </Button>
++        ) : (
++          <Button
++            disabled={file.status !== "UPLOADED"}
++            variant="outline"
++            size="lg"
++            className={cn(
++              "h-11 rounded-lg px-3.5",
++              file.status !== "UPLOADED" && "cursor-not-allowed opacity-50",
++            )}
++            aria-label="Preview file"
++          >
++            <Eye className="size-4.5" color="currentColor" />
++            <span className="max-sm:hidden">Preview</span>
++          </Button>
++        )}
+       </DialogTrigger>
+ 
+       <DialogContent className="flex max-h-[92dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+diff --git a/apps/web/components/share/share-actions.tsx b/apps/web/components/share/share-actions.tsx
+new file mode 100644
+index 0000000..4ef64de
+--- /dev/null
++++ b/apps/web/components/share/share-actions.tsx
+@@ -0,0 +1,338 @@
++"use client";
++
++import * as React from "react";
++import { AnimatePresence, motion } from "motion/react";
++import {
++  Copy,
++  CopySuccess,
++  ImportCurve,
++  Lock,
++  ShieldTick,
++  Sms,
++  TickCircle,
++  Timer1,
++  Trash,
++  type Icon,
++} from "iconsax-react";
++import { toast } from "sonner";
++import { Button } from "@/components/ui/button";
++import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
++import { formatRelativeTime } from "@/lib/format";
++import { cn } from "@/lib/utils";
++import { ShareByEmail } from "./share-by-email";
++
++const DAY_MS = 24 * 3600 * 1000;
++
++// Entrance of a share card: its parts rise in one after the other.
++export const stagger = {
++  hidden: {},
++  show: { transition: { staggerChildren: 0.07, delayChildren: 0.1 } },
++};
++export const rise = {
++  hidden: { opacity: 0, y: 10 },
++  show: {
++    opacity: 1,
++    y: 0,
++    transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] as const },
++  },
++};
++
++/** The card around a share-page state, entering with a small spring. */
++export function ShareCardFrame({ children, role }: { children: React.ReactNode; role?: string }) {
++  return (
++    <motion.div
++      initial={{ opacity: 0, scale: 0.97, y: 12 }}
++      animate={{ opacity: 1, scale: 1, y: 0 }}
++      exit={{ opacity: 0, scale: 0.98 }}
++      transition={{ type: "spring", stiffness: 260, damping: 26 }}
++      className="frame-double"
++      role={role}
++    >
++      <div className="relative isolate overflow-hidden rounded-[13px] border bg-card">
++        <div
++          aria-hidden
++          className="bg-dot-grid pointer-events-none absolute inset-x-0 top-0 h-48 opacity-70 mask-[radial-gradient(ellipse_70%_100%_at_50%_0%,black,transparent_80%)]"
++        />
++        {children}
++      </div>
++    </motion.div>
++  );
++}
++
++/** Icon on a raised tile, with slow waves rolling out behind it. */
++export function IconTile({ icon: TileIcon }: { icon: Icon }) {
++  return (
++    <div className="relative">
++      {[0, 1].map((i) => (
++        <motion.span
++          key={i}
++          aria-hidden
++          className="pointer-events-none absolute inset-0 rounded-3xl border border-brand/40"
++          animate={{ scale: [1, 1.9], opacity: [0.5, 0] }}
++          transition={{
++            duration: 3,
++            repeat: Infinity,
++            delay: i * 1.5,
++            ease: "easeOut",
++          }}
++        />
++      ))}
++      <div aria-hidden className="absolute inset-2 rounded-full bg-brand/30 blur-xl" />
++      <motion.div
++        animate={{ y: [0, -4, 0] }}
++        transition={{ duration: 3.4, repeat: Infinity, ease: "easeInOut" }}
++        className="relative flex size-20 items-center justify-center rounded-3xl border bg-card text-brand-muted shadow-lg"
++      >
++        <TileIcon variant="Bulk" className="size-10" color="currentColor" />
++      </motion.div>
++    </div>
++  );
++}
++
++/** What the link does: expiry, password, one download. Nothing when none apply. */
++export function LinkFacts({
++  expiresAt,
++  isProtected,
++  burnAfterDownload,
++}: {
++  expiresAt: string | null;
++  isProtected: boolean;
++  burnAfterDownload: boolean;
++}) {
++  if (!expiresAt && !isProtected && !burnAfterDownload) return null;
++  const expiresSoon = expiresAt ? new Date(expiresAt).getTime() - Date.now() < DAY_MS : false;
++  const fact = "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs";
++
++  return (
++    <motion.div variants={rise} className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
++      {expiresAt && (
++        <span className={cn(fact, expiresSoon ? "bg-warning-subtle text-warning-muted" : "text-muted-foreground")}>
++          <Timer1 variant="Bulk" className="size-3.5" color="currentColor" />
++          Link expires {formatRelativeTime(expiresAt)}
++        </span>
++      )}
++      {isProtected && (
++        <span className={cn(fact, "text-muted-foreground")}>
++          <Lock variant="Bulk" className="size-3.5" color="currentColor" />
++          Password protected
++        </span>
++      )}
++      {burnAfterDownload && (
++        <span className={cn(fact, "bg-warning-subtle text-warning-muted")}>
++          <Trash variant="Bulk" className="size-3.5" color="currentColor" />
++          One download only
++        </span>
++      )}
++    </motion.div>
++  );
++}
++
++/**
++ * The main download link. The API redirects to a short-lived S3 URL (one file) or
++ * streams a zip (all files), both served as attachments, so the page stays put.
++ *
++ * `beforeDownload` runs first when set (burn-after-download links): it checks the
++ * link still works, so a used link shows the share page's message instead of
++ * navigating to an error. `used` then keeps the button off for good.
++ */
++export function DownloadButton({
++  href,
++  label,
++  ready,
++  used = false,
++  beforeDownload,
++}: {
++  href: string;
++  label: string;
++  /** False while files are still being checked. */
++  ready: boolean;
++  used?: boolean;
++  beforeDownload?: () => Promise<boolean>;
++}) {
++  const [started, setStarted] = React.useState(false);
++  const enabled = ready && !used;
++
++  React.useEffect(() => {
++    if (!started) return;
++    const timer = setTimeout(() => setStarted(false), 2500);
++    return () => clearTimeout(timer);
++  }, [started]);
++
++  const onClick = async (event: React.MouseEvent<HTMLAnchorElement>) => {
++    if (!enabled) {
++      event.preventDefault();
++      return;
++    }
++    if (!beforeDownload) {
++      setStarted(true);
++      return;
++    }
++    event.preventDefault();
++    if (await beforeDownload()) {
++      setStarted(true);
++      window.location.assign(href);
++    }
++  };
++
++  return (
++    <Button
++      asChild
++      size="lg"
++      className={cn(
++        "group/download h-11 min-w-0 flex-1 rounded-lg bg-brand text-sm text-brand-foreground shadow-md hover:bg-brand-hover",
++        !enabled && "cursor-not-allowed opacity-50",
++      )}
++    >
++      <a href={enabled ? href : undefined} onClick={onClick} role="link" aria-disabled={!enabled}>
++        <AnimatePresence mode="wait" initial={false}>
++          <motion.span
++            key={started ? "started" : used ? "used" : "idle"}
++            initial={{ opacity: 0, y: 6 }}
++            animate={{ opacity: 1, y: 0 }}
++            exit={{ opacity: 0, y: -6 }}
++            transition={{ duration: 0.15 }}
++            className="inline-flex min-w-0 items-center gap-2"
++          >
++            {started || used ? (
++              <>
++                <TickCircle variant="Bold" className="size-4.5 shrink-0" color="currentColor" />
++                {started ? "Download started" : "Downloaded"}
++              </>
++            ) : (
++              <>
++                <ImportCurve
++                  className="size-4.5 shrink-0 transition-transform duration-300 group-hover/download:translate-y-0.5"
++                  color="currentColor"
++                />
++                <span className="truncate">{label}</span>
++              </>
++            )}
++          </motion.span>
++        </AnimatePresence>
++      </a>
++    </Button>
++  );
++}
++
++export function CopyLinkButton() {
++  const [copied, setCopied] = React.useState(false);
++
++  React.useEffect(() => {
++    if (!copied) return;
++    const timer = setTimeout(() => setCopied(false), 1800);
++    return () => clearTimeout(timer);
++  }, [copied]);
++
++  const copy = async () => {
++    try {
++      await navigator.clipboard.writeText(window.location.href);
++      setCopied(true);
++      toast.success("Link copied");
++    } catch {
++      toast.error("Couldn't copy the link", {
++        description: "Copy it from the address bar instead.",
++      });
++    }
++  };
++
++  return (
++    <Tooltip>
++      <TooltipTrigger asChild>
++        <Button
++          type="button"
++          variant="outline"
++          size="icon-lg"
++          className="size-11 rounded-lg"
++          aria-label="Copy link"
++          onClick={copy}
++        >
++          {copied ? (
++            <CopySuccess className="size-4.5 text-success" color="currentColor" />
++          ) : (
++            <Copy className="size-4.5" color="currentColor" />
++          )}
++        </Button>
++      </TooltipTrigger>
++      <TooltipContent>{copied ? "Copied" : "Copy link"}</TooltipContent>
++    </Tooltip>
++  );
++}
++
++/**
++ * "Send to someone by email", opening the address field under it. A text button
++ * under the actions rather than another icon beside them: that row has no room
++ * left on a phone, and downloading stays the main action.
++ */
++export function EmailShare({
++  dropId,
++  isProtected,
++  disabled,
++}: {
++  dropId: string;
++  isProtected: boolean;
++  /** The API only emails links whose files passed the check, like it only serves them. */
++  disabled: boolean;
++}) {
++  const [open, setOpen] = React.useState(false);
++
++  return (
++    <>
++      <motion.div variants={rise} className="mt-3">
++        <Button
++          type="button"
++          variant="ghost"
++          size="sm"
++          className={cn(!open && "text-muted-foreground")}
++          aria-expanded={open}
++          disabled={disabled}
++          onClick={() => setOpen((value) => !value)}
++        >
++          <Sms className="size-3.5" color="currentColor" />
++          Send to someone by email
++        </Button>
++      </motion.div>
++
++      <AnimatePresence initial={false}>
++        {open && !disabled && (
++          <motion.div
++            key="email"
++            initial={{ height: 0, opacity: 0 }}
++            animate={{ height: "auto", opacity: 1 }}
++            exit={{ height: 0, opacity: 0 }}
++            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
++            // The padding, offset by the negative margin, leaves room for the input's focus ring.
++            className="-mx-1 -mb-1 self-stretch overflow-hidden px-1 pb-1"
++          >
++            <ShareByEmail dropId={dropId} protected={isProtected} size="lg" onSent={() => setOpen(false)} />
++          </motion.div>
++        )}
++      </AnimatePresence>
++    </>
++  );
++}
++
++export function PrivacyFooter({ children }: { children: React.ReactNode }) {
++  return (
++    <div className="relative flex items-center justify-center gap-1.5 border-t bg-surface/60 px-6 py-3 text-center text-xs text-muted-foreground">
++      <ShieldTick className="size-3.5 shrink-0 text-success-muted" color="currentColor" />
++      {children}
++    </div>
++  );
++}
++
++/** Shown under the actions of a burn-after-download link: before, and after its one download. */
++export function BurnNotice({ used, many }: { used: boolean; many: boolean }) {
++  return (
++    <motion.p
++      variants={rise}
++      role={used ? "status" : undefined}
++      className="mt-4 rounded-lg border border-warning/30 bg-warning-subtle px-3 py-2 text-left text-xs leading-relaxed text-pretty text-warning-muted"
++    >
++      {used
++        ? "This link has now been used. Its files are deleted in a minute and the link stops working."
++        : many
++          ? "This link works for one download: the files come as one zip, then they're deleted. Previews are off, so nothing is fetched before."
++          : "This link works for one download, then the file is deleted. Previews are off, so it's only fetched once."}
++    </motion.p>
++  );
++}
+diff --git a/apps/web/components/share/share-by-email.tsx b/apps/web/components/share/share-by-email.tsx
+index 0ef0edd..8751690 100644
+--- a/apps/web/components/share/share-by-email.tsx
++++ b/apps/web/components/share/share-by-email.tsx
+@@ -5,9 +5,9 @@ import { Send2 } from "iconsax-react";
+ import { toast } from "sonner";
+ import { Button } from "@/components/ui/button";
+ import { Input } from "@/components/ui/input";
+-import { useShareFile } from "@/hooks/files";
++import { useShareDrop } from "@/hooks/drops";
+ import { MAX_SHARE_RECIPIENTS } from "@/lib/consts";
+-import { shareSchema } from "@/schemas/files";
++import { shareSchema } from "@/schemas/drops";
+ import { cn } from "@/lib/utils";
+ 
+ /** "a@x.com, b@y.com c@z.com" → the unique addresses, or what's wrong with the list. */
+@@ -32,18 +32,21 @@ function parseEmails(value: string): { emails: string[] } | { error: string } {
+ }
+ 
+ export function ShareByEmail({
+-  fileId,
++  dropId,
++  protected: isProtected = false,
+   onSent,
+   size = "default",
+ }: {
+-  fileId: string;
++  dropId: string;
++  /** The email then names nothing, and the password is never in it. */
++  protected?: boolean;
+   onSent: () => void;
+   /** "lg" matches the share page's 44px buttons. */
+   size?: "default" | "lg";
+ }) {
+   const [value, setValue] = React.useState("");
+   const [error, setError] = React.useState<string | null>(null);
+-  const { mutate: share, isPending } = useShareFile();
++  const { mutate: share, isPending } = useShareDrop();
+   const inputId = React.useId();
+   const hintId = `${inputId}-hint`;
+ 
+@@ -56,11 +59,11 @@ export function ShareByEmail({
+     }
+ 
+     share(
+-      { fileId, emails: parsed.emails },
++      { dropId, emails: parsed.emails },
+       {
+         onSuccess: ({ sent, failed }) => {
+           toast.success(sent === 1 ? "Email sent" : `Sent to ${sent} people`, {
+-            description: "They'll get a link to this file.",
++            description: isProtected ? "They'll get the link. Send them the password yourself." : "They'll get a link to the files.",
+           });
+           if (failed.length > 0) {
+             toast.warning(`Couldn't send to ${failed.join(", ")}`, {
+@@ -114,7 +117,8 @@ export function ShareByEmail({
+         aria-live="polite"
+         className={cn("px-0.5 text-xs", error ? "text-danger-muted" : "text-muted-foreground")}
+       >
+-        {error ?? `Up to ${MAX_SHARE_RECIPIENTS} addresses, separated by commas. Each gets a link to this file.`}
++        {error ??
++          `Up to ${MAX_SHARE_RECIPIENTS} addresses, separated by commas. ${isProtected ? "Each gets the link, never the password." : "Each gets the link."}`}
+       </p>
+     </form>
+   );
+diff --git a/apps/web/components/share/shared-bundle-card.tsx b/apps/web/components/share/shared-bundle-card.tsx
+new file mode 100644
+index 0000000..06ca50f
+--- /dev/null
++++ b/apps/web/components/share/shared-bundle-card.tsx
+@@ -0,0 +1,223 @@
++"use client";
++
++import * as React from "react";
++import { motion } from "motion/react";
++import { DocumentCopy, Folder2, ImportCurve } from "iconsax-react";
++import { Button } from "@/components/ui/button";
++import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
++import { dropTitle, sharedFolder, treeRows } from "@/lib/drop-files";
++import { iconForFile } from "@/lib/file-icons";
++import { formatBytes, formatRelativeTime } from "@/lib/format";
++import { cn } from "@/lib/utils";
++import dropsService from "@/services/drops";
++import type { DropFile, OpenDrop } from "@/types/drop";
++import { FilePreviewDialog } from "./file-preview-dialog";
++import {
++  BurnNotice,
++  CopyLinkButton,
++  DownloadButton,
++  EmailShare,
++  IconTile,
++  LinkFacts,
++  PrivacyFooter,
++  ShareCardFrame,
++  rise,
++  stagger,
++} from "./share-actions";
++
++// Deeper folders stop indenting, so names keep room on a phone.
++const MAX_INDENT = 4;
++
++/**
++ * The share page for a link with several files or a folder: the files as a tree,
++ * each with its own preview and download, and "Download all" as one zip. Files the
++ * check rejected stay listed as removed; the others are available.
++ */
++export function SharedBundleCard({
++  drop,
++  beforeBurn,
++}: {
++  drop: OpenDrop;
++  /** Checks a burn-after-download link still works before its one download. */
++  beforeBurn: () => Promise<boolean>;
++}) {
++  const paths = drop.files.map((file) => file.path);
++  const available = drop.files.filter((file) => file.status === "UPLOADED");
++  const checking = drop.files.filter((file) => file.status === "SCANNING").length;
++  const removed = drop.files.filter((file) => file.status === "REMOVED").length;
++  const totalSize = available.reduce((sum, file) => sum + file.size, 0);
++  const folder = sharedFolder(paths);
++  const [used, setUsed] = React.useState(false);
++
++  return (
++    <ShareCardFrame>
++      <motion.div
++        variants={stagger}
++        initial="hidden"
++        animate="show"
++        className="relative flex flex-col items-center px-4 pt-10 pb-6 text-center sm:px-8"
++      >
++        <motion.div variants={rise}>
++          <IconTile icon={folder ? Folder2 : DocumentCopy} />
++        </motion.div>
++        {checking > 0 ? (
++          <motion.span
++            variants={rise}
++            className="mt-6 inline-flex items-center gap-1.5 rounded-full bg-warning-subtle px-2.5 py-0.5 text-xs font-medium text-warning-muted"
++          >
++            Checking {checking} {checking === 1 ? "file" : "files"}
++          </motion.span>
++        ) : (
++          <motion.span
++            variants={rise}
++            className="mt-6 inline-flex items-center gap-1.5 rounded-full bg-brand-subtle px-2.5 py-0.5 text-xs font-medium text-brand-muted"
++          >
++            Shared with you
++          </motion.span>
++        )}
++
++        <motion.h1
++          variants={rise}
++          className="mt-3 line-clamp-2 font-heading text-2xl leading-tight font-medium tracking-tight wrap-break-word sm:text-[28px]"
++        >
++          {dropTitle(paths)}
++        </motion.h1>
++
++        <motion.p
++          variants={rise}
++          className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-muted-foreground"
++        >
++          <span>
++            {available.length} {available.length === 1 ? "file" : "files"}
++          </span>
++          <span className="font-mono tabular-nums">{formatBytes(totalSize)}</span>
++          <span aria-hidden className="size-1 rounded-full bg-border-strong" />
++          <span>Uploaded {formatRelativeTime(drop.createdAt)}</span>
++        </motion.p>
++
++        <LinkFacts expiresAt={drop.expiresAt} isProtected={drop.protected} burnAfterDownload={drop.burnAfterDownload} />
++
++        <motion.div variants={rise} className="mt-8 flex w-full gap-2">
++          <DownloadButton
++            href={dropsService.zipDownloadUrl(drop.id)}
++            label={`Download all (${available.length})`}
++            ready={checking === 0 && available.length > 0}
++            used={used}
++            beforeDownload={
++              drop.burnAfterDownload
++                ? async () => {
++                    const ok = await beforeBurn();
++                    if (ok) setUsed(true);
++                    return ok;
++                  }
++                : undefined
++            }
++          />
++          <CopyLinkButton />
++        </motion.div>
++        <motion.p variants={rise} className="mt-2 text-xs text-muted-foreground">
++          {checking > 0
++            ? "Download all opens once every file has been checked."
++            : `One zip${folder ? `, with the folder structure` : ""}.`}
++        </motion.p>
++
++        {drop.burnAfterDownload && <BurnNotice used={used} many />}
++
++        <motion.div variants={rise} className="mt-6 w-full">
++          <FileTree drop={drop} perFile={!drop.burnAfterDownload} />
++          {removed > 0 && (
++            <p className="mt-2 text-left text-xs text-muted-foreground">
++              {removed === 1 ? "1 file was" : `${removed} files were`} removed by the file check: the content
++              didn&apos;t match its type. The others are safe to download.
++            </p>
++          )}
++        </motion.div>
++
++        {!used && <EmailShare dropId={drop.id} isProtected={drop.protected} disabled={checking > 0} />}
++      </motion.div>
++
++      <PrivacyFooter>Stored privately · only people with this link can download these files</PrivacyFooter>
++    </ShareCardFrame>
++  );
++}
++
++/** Folders and files, indented; `perFile` adds each file's preview and download. */
++function FileTree({ drop, perFile }: { drop: OpenDrop; perFile: boolean }) {
++  const rows = treeRows(drop.files);
++
++  return (
++    <ul aria-label="Files" className="overflow-hidden rounded-xl border bg-surface text-left">
++      {rows.map((row) => {
++        const indent = { paddingLeft: `${0.75 + Math.min(row.depth, MAX_INDENT) * 1}rem` };
++        if (row.kind === "folder") {
++          return (
++            <li
++              key={row.key}
++              style={indent}
++              className="flex min-h-10 items-center gap-2 border-b py-2 pr-3 text-sm font-medium text-muted-foreground last:border-b-0"
++            >
++              <Folder2 variant="Bulk" className="size-4 shrink-0 text-brand-muted" color="currentColor" />
++              <span className="truncate">{row.name}</span>
++            </li>
++          );
++        }
++        return (
++          <FileTreeRow key={row.key} drop={drop} file={row.item} name={row.name} style={indent} perFile={perFile} />
++        );
++      })}
++    </ul>
++  );
++}
++
++function FileTreeRow({
++  drop,
++  file,
++  name,
++  style,
++  perFile,
++}: {
++  drop: OpenDrop;
++  file: DropFile;
++  name: string;
++  style: React.CSSProperties;
++  perFile: boolean;
++}) {
++  const FileIcon = iconForFile(file.filename, file.contentType);
++  const removed = file.status === "REMOVED";
++  const downloadUrl = dropsService.fileDownloadUrl(drop.id, file.id);
++
++  return (
++    <li style={style} className="flex min-h-11 items-center gap-2 border-b py-1.5 pr-1.5 last:border-b-0">
++      <FileIcon
++        variant="Bulk"
++        className={cn("size-4 shrink-0", removed ? "text-muted-foreground/60" : "text-brand-muted")}
++        color="currentColor"
++      />
++      <div className="flex min-w-0 flex-1 flex-col">
++        <span className={cn("truncate text-sm", removed && "text-muted-foreground line-through")} title={file.path}>
++          {name}
++        </span>
++        <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
++          <span className="font-mono tabular-nums">{formatBytes(file.size)}</span>
++          {file.status === "SCANNING" && <span className="text-warning-muted">· Checking</span>}
++          {removed && <span className="text-danger-muted">· Removed by the check</span>}
++        </span>
++      </div>
++      {perFile && file.status === "UPLOADED" && (
++        <div className="flex shrink-0 items-center">
++          <FilePreviewDialog dropId={drop.id} file={file} downloadUrl={downloadUrl} compact />
++          <Tooltip>
++            <TooltipTrigger asChild>
++              <Button asChild variant="ghost" size="icon-sm" className="text-muted-foreground">
++                <a href={downloadUrl} aria-label={`Download ${file.filename}`}>
++                  <ImportCurve variant="Bulk" className="size-4" color="currentColor" />
++                </a>
++              </Button>
++            </TooltipTrigger>
++            <TooltipContent>Download</TooltipContent>
++          </Tooltip>
++        </div>
++      )}
++    </li>
++  );
++}
+diff --git a/apps/web/components/share/shared-drop.tsx b/apps/web/components/share/shared-drop.tsx
+new file mode 100644
+index 0000000..d19e52a
+--- /dev/null
++++ b/apps/web/components/share/shared-drop.tsx
+@@ -0,0 +1,67 @@
++"use client";
++
++import * as React from "react";
++import axios from "axios";
++import { AnimatePresence } from "motion/react";
++import { useQueryClient } from "@tanstack/react-query";
++import { useGetDrop } from "@/hooks/drops";
++import { qk } from "@/lib/query-keys";
++import { cn } from "@/lib/utils";
++import { SharedBundleCard } from "./shared-bundle-card";
++import { SharedDropSkeleton, SharedFileCard } from "./shared-file-card";
++import { SharedFileUnavailable, type UnavailableReason } from "./shared-file-unavailable";
++import { UnlockCard } from "./unlock-card";
++
++/** Maps API errors to the screen to show: 404/400 → not found, 410 → expired or already used. */
++function reasonFor(error: unknown): UnavailableReason {
++  if (axios.isAxiosError(error)) {
++    const status = error.response?.status;
++    if (status === 404 || status === 400) return "not-found";
++    if (status === 410) return error.response?.data?.reason === "consumed" ? "consumed" : "expired";
++  }
++  return "error";
++}
++
++/** The share page: a link's files, its password prompt, or why it can't be opened. */
++export function SharedDrop({ id }: { id: string }) {
++  const { data, isPending, error, refetch } = useGetDrop(id);
++  const queryClient = useQueryClient();
++
++  // The unlock cookie lasts 15 minutes; when it runs out, show the password prompt again.
++  const unlockedUntil = data && !data.locked ? data.unlockedUntil : null;
++  React.useEffect(() => {
++    if (!unlockedUntil) return;
++    const timer = setTimeout(
++      () => queryClient.invalidateQueries({ queryKey: qk.drops.byId(id) }),
++      Math.max(0, new Date(unlockedUntil).getTime() - Date.now()),
++    );
++    return () => clearTimeout(timer);
++  }, [id, queryClient, unlockedUntil]);
++
++  // Right before the one download of a burn-after-download link: if someone else
++  // just used it, the refetch fails with 410 and the page says so instead.
++  const stillAvailable = React.useCallback(async () => {
++    const result = await refetch();
++    return !result.isError && !!result.data && !result.data.locked;
++  }, [refetch]);
++
++  const bundle = !!data && !data.locked && data.files.length > 1 && !error;
++
++  return (
++    <div className={cn("mx-auto w-full", bundle ? "max-w-2xl" : "max-w-md")}>
++      <AnimatePresence mode="wait">
++        {isPending ? (
++          <SharedDropSkeleton key="loading" />
++        ) : error || !data ? (
++          <SharedFileUnavailable key="unavailable" reason={reasonFor(error)} onRetry={() => refetch()} />
++        ) : data.locked ? (
++          <UnlockCard key="locked" drop={data} />
++        ) : bundle ? (
++          <SharedBundleCard key="bundle" drop={data} beforeBurn={stillAvailable} />
++        ) : (
++          <SharedFileCard key="file" drop={data} file={data.files[0]!} beforeBurn={stillAvailable} />
++        )}
++      </AnimatePresence>
++    </div>
++  );
++}
+diff --git a/apps/web/components/share/shared-file-card.tsx b/apps/web/components/share/shared-file-card.tsx
+index fe970d0..c0c0125 100644
+--- a/apps/web/components/share/shared-file-card.tsx
++++ b/apps/web/components/share/shared-file-card.tsx
+@@ -1,364 +1,122 @@
+ "use client";
+ 
+ import * as React from "react";
+-import { AnimatePresence, motion } from "motion/react";
+-import {
+-  Copy,
+-  CopySuccess,
+-  ImportCurve,
+-  ShieldTick,
+-  Sms,
+-  TickCircle,
+-  Timer1,
+-} from "iconsax-react";
+-import { toast } from "sonner";
+-import { Button } from "@/components/ui/button";
+-import {
+-  Tooltip,
+-  TooltipContent,
+-  TooltipTrigger,
+-} from "@/components/ui/tooltip";
++import { motion } from "motion/react";
+ import { iconForFile } from "@/lib/file-icons";
+ import { fileTypeLabel, formatBytes, formatRelativeTime } from "@/lib/format";
+-import { cn } from "@/lib/utils";
+-import type { FileInfo, FileStatus } from "@/types/file";
++import dropsService from "@/services/drops";
++import type { DropFile, OpenDrop } from "@/types/drop";
+ import { FilePreviewDialog } from "./file-preview-dialog";
+-import { ShareByEmail } from "./share-by-email";
+-
+-const DAY_MS = 24 * 3600 * 1000;
+-
+-const stagger = {
+-  hidden: {},
+-  show: { transition: { staggerChildren: 0.07, delayChildren: 0.1 } },
+-};
+-const rise = {
+-  hidden: { opacity: 0, y: 10 },
+-  show: {
+-    opacity: 1,
+-    y: 0,
+-    transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] as const },
+-  },
+-};
+-
++import {
++  BurnNotice,
++  CopyLinkButton,
++  DownloadButton,
++  EmailShare,
++  IconTile,
++  LinkFacts,
++  PrivacyFooter,
++  ShareCardFrame,
++  rise,
++  stagger,
++} from "./share-actions";
++
++/** The share page for a link with one file. */
+ export function SharedFileCard({
++  drop,
+   file,
+-  downloadUrl,
++  beforeBurn,
+ }: {
+-  file: FileInfo;
+-  downloadUrl: string;
++  drop: OpenDrop;
++  file: DropFile;
++  /** Checks a burn-after-download link still works before its one download. */
++  beforeBurn: () => Promise<boolean>;
+ }) {
+   const FileIcon = iconForFile(file.filename, file.contentType);
+-  const expiresSoon = file.expiresAt
+-    ? new Date(file.expiresAt).getTime() - Date.now() < DAY_MS
+-    : false;
+-  // The API only emails files that passed the check, like it only serves them.
+-  const canEmail = file.status === "UPLOADED";
+-  const [emailOpen, setEmailOpen] = React.useState(false);
++  const ready = file.status === "UPLOADED";
++  const downloadUrl = dropsService.fileDownloadUrl(drop.id, file.id);
++  // Set once this browser started the one download of a burn-after-download link.
++  const [used, setUsed] = React.useState(false);
+ 
+   return (
+-    <motion.div
+-      initial={{ opacity: 0, scale: 0.97, y: 12 }}
+-      animate={{ opacity: 1, scale: 1, y: 0 }}
+-      exit={{ opacity: 0, scale: 0.98 }}
+-      transition={{ type: "spring", stiffness: 260, damping: 26 }}
+-      className="frame-double"
+-    >
+-      <div className="relative isolate overflow-hidden rounded-[13px] border bg-card">
+-        <div
+-          aria-hidden
+-          className="bg-dot-grid pointer-events-none absolute inset-x-0 top-0 h-48 opacity-70 mask-[radial-gradient(ellipse_70%_100%_at_50%_0%,black,transparent_80%)]"
+-        />
+-
+-        <motion.div
+-          variants={stagger}
+-          initial="hidden"
+-          animate="show"
+-          className="relative flex flex-col items-center px-6 pt-10 pb-6 text-center sm:px-10"
+-        >
+-          <motion.div variants={rise}>
+-            <FileTile icon={FileIcon} />
+-          </motion.div>
+-          {file.status == "UPLOADED" ? (
+-            <motion.span
+-              variants={rise}
+-              className="mt-6 inline-flex items-center gap-1.5 rounded-full bg-brand-subtle px-2.5 py-0.5 text-xs font-medium text-brand-muted"
+-            >
+-              Shared with you
+-            </motion.span>
+-          ) : (
+-            <motion.span
+-              variants={rise}
+-              className="mt-6 inline-flex items-center gap-1.5 rounded-full bg-amber-500/25 px-2.5 py-0.5 text-xs font-medium text-amber-600"
+-            >
+-              File is being scanned
+-            </motion.span>
+-          )}
+-
+-          <motion.h1
++    <ShareCardFrame>
++      <motion.div
++        variants={stagger}
++        initial="hidden"
++        animate="show"
++        className="relative flex flex-col items-center px-6 pt-10 pb-6 text-center sm:px-10"
++      >
++        <motion.div variants={rise}>
++          <IconTile icon={FileIcon} />
++        </motion.div>
++        {ready ? (
++          <motion.span
+             variants={rise}
+-            title={file.filename}
+-            className="mt-3 line-clamp-2 font-heading text-2xl leading-tight font-medium tracking-tight wrap-break-word sm:text-[28px]"
++            className="mt-6 inline-flex items-center gap-1.5 rounded-full bg-brand-subtle px-2.5 py-0.5 text-xs font-medium text-brand-muted"
+           >
+-            {file.filename}
+-          </motion.h1>
+-
+-          <motion.p
++            Shared with you
++          </motion.span>
++        ) : (
++          <motion.span
+             variants={rise}
+-            className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-muted-foreground"
++            className="mt-6 inline-flex items-center gap-1.5 rounded-full bg-warning-subtle px-2.5 py-0.5 text-xs font-medium text-warning-muted"
+           >
+-            <span className="rounded-sm border bg-muted px-1.5 py-px font-mono text-2xs font-medium text-foreground">
+-              {fileTypeLabel(file.filename, file.contentType)}
+-            </span>
+-            <span className="font-mono tabular-nums">
+-              {formatBytes(file.size)}
+-            </span>
+-            <span
+-              aria-hidden
+-              className="size-1 rounded-full bg-border-strong"
+-            />
+-            <span>Uploaded {formatRelativeTime(file.createdAt)}</span>
+-          </motion.p>
+-
+-          {file.expiresAt && (
+-            <motion.p
+-              variants={rise}
+-              className={cn(
+-                "mt-3 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs",
+-                expiresSoon
+-                  ? "bg-warning-subtle text-warning-muted"
+-                  : "text-muted-foreground",
+-              )}
+-            >
+-              <Timer1 className="size-3.5" color="currentColor" />
+-              Link expires {formatRelativeTime(file.expiresAt)}
+-            </motion.p>
+-          )}
+-
+-          <motion.div variants={rise} className="mt-8 flex w-full gap-2">
+-            <DownloadButton href={downloadUrl} status={file.status} />
+-            <FilePreviewDialog file={file} downloadUrl={downloadUrl} />
+-            <CopyLinkButton />
+-          </motion.div>
++            File is being scanned
++          </motion.span>
++        )}
+ 
+-          <motion.div variants={rise} className="mt-3">
+-            <EmailToggle
+-              open={emailOpen}
+-              disabled={!canEmail}
+-              onToggle={() => setEmailOpen((open) => !open)}
+-            />
+-          </motion.div>
++        <motion.h1
++          variants={rise}
++          title={file.filename}
++          className="mt-3 line-clamp-2 font-heading text-2xl leading-tight font-medium tracking-tight wrap-break-word sm:text-[28px]"
++        >
++          {file.filename}
++        </motion.h1>
+ 
+-          <AnimatePresence initial={false}>
+-            {emailOpen && canEmail && (
+-              <motion.div
+-                key="email"
+-                initial={{ height: 0, opacity: 0 }}
+-                animate={{ height: "auto", opacity: 1 }}
+-                exit={{ height: 0, opacity: 0 }}
+-                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+-                // The padding, offset by the negative margin, leaves room for the input's focus ring.
+-                className="-mx-1 -mb-1 self-stretch overflow-hidden px-1 pb-1"
+-              >
+-                <ShareByEmail
+-                  fileId={file.id}
+-                  size="lg"
+-                  onSent={() => setEmailOpen(false)}
+-                />
+-              </motion.div>
+-            )}
+-          </AnimatePresence>
++        <motion.p
++          variants={rise}
++          className="mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-muted-foreground"
++        >
++          <span className="rounded-sm border bg-muted px-1.5 py-px font-mono text-2xs font-medium text-foreground">
++            {fileTypeLabel(file.filename, file.contentType)}
++          </span>
++          <span className="font-mono tabular-nums">{formatBytes(file.size)}</span>
++          <span aria-hidden className="size-1 rounded-full bg-border-strong" />
++          <span>Uploaded {formatRelativeTime(drop.createdAt)}</span>
++        </motion.p>
++
++        <LinkFacts expiresAt={drop.expiresAt} isProtected={drop.protected} burnAfterDownload={drop.burnAfterDownload} />
++
++        <motion.div variants={rise} className="mt-8 flex w-full gap-2">
++          <DownloadButton
++            href={downloadUrl}
++            label="Download file"
++            ready={ready}
++            used={used}
++            beforeDownload={
++              drop.burnAfterDownload
++                ? async () => {
++                    const ok = await beforeBurn();
++                    if (ok) setUsed(true);
++                    return ok;
++                  }
++                : undefined
++            }
++          />
++          {!drop.burnAfterDownload && <FilePreviewDialog dropId={drop.id} file={file} downloadUrl={downloadUrl} />}
++          <CopyLinkButton />
+         </motion.div>
+ 
+-        <div className="relative flex items-center justify-center gap-1.5 border-t bg-surface/60 px-6 py-3 text-xs text-muted-foreground">
+-          <ShieldTick
+-            className="size-3.5 shrink-0 text-success-muted"
+-            color="currentColor"
+-          />
+-          Stored privately · only people with this link can download it
+-        </div>
+-      </div>
+-    </motion.div>
+-  );
+-}
++        {drop.burnAfterDownload && <BurnNotice used={used} many={false} />}
+ 
+-/** File icon on a raised tile, with slow waves rolling out behind it. */
+-function FileTile({
+-  icon: FileIcon,
+-}: {
+-  icon: ReturnType<typeof iconForFile>;
+-}) {
+-  return (
+-    <div className="relative">
+-      {[0, 1].map((i) => (
+-        <motion.span
+-          key={i}
+-          aria-hidden
+-          className="pointer-events-none absolute inset-0 rounded-3xl border border-brand/40"
+-          animate={{ scale: [1, 1.9], opacity: [0.5, 0] }}
+-          transition={{
+-            duration: 3,
+-            repeat: Infinity,
+-            delay: i * 1.5,
+-            ease: "easeOut",
+-          }}
+-        />
+-      ))}
+-      <div
+-        aria-hidden
+-        className="absolute inset-2 rounded-full bg-brand/30 blur-xl"
+-      />
+-      <motion.div
+-        animate={{ y: [0, -4, 0] }}
+-        transition={{ duration: 3.4, repeat: Infinity, ease: "easeInOut" }}
+-        className="relative flex size-20 items-center justify-center rounded-3xl border bg-card text-brand-muted shadow-lg"
+-      >
+-        <FileIcon variant="Bulk" className="size-10" color="currentColor" />
++        {!used && <EmailShare dropId={drop.id} isProtected={drop.protected} disabled={!ready} />}
+       </motion.div>
+-    </div>
+-  );
+-}
+-
+-function DownloadButton({
+-  href,
+-  status,
+-}: {
+-  href: string;
+-  status: FileStatus;
+-}) {
+-  const [started, setStarted] = React.useState(false);
+-
+-  React.useEffect(() => {
+-    if (!started) return;
+-    const timer = setTimeout(() => setStarted(false), 2500);
+-    return () => clearTimeout(timer);
+-  }, [started]);
+-
+-  return (
+-    <Button
+-      asChild
+-      size="lg"
+-      className={cn(
+-        "group/download h-11 flex-1 rounded-lg bg-brand text-sm text-brand-foreground shadow-md hover:bg-brand-hover",
+-
+-        status !== "UPLOADED" && "cursor-not-allowed opacity-50",
+-      )}
+-      disabled={status !== "UPLOADED"}
+-    >
+-      {/* The API redirects to a short-lived S3 URL that is served as an attachment. */}
+-      <a
+-        href={status == "UPLOADED" ? href : undefined}
+-        onClick={() => (status == "UPLOADED" ? setStarted(true) : undefined)}
+-        role={status == "UPLOADED" ? "link" : undefined}
+-      >
+-        <AnimatePresence mode="wait" initial={false}>
+-          <motion.span
+-            key={started ? "started" : "idle"}
+-            initial={{ opacity: 0, y: 6 }}
+-            animate={{ opacity: 1, y: 0 }}
+-            exit={{ opacity: 0, y: -6 }}
+-            transition={{ duration: 0.15 }}
+-            className="inline-flex items-center gap-2"
+-          >
+-            {started ? (
+-              <>
+-                <TickCircle
+-                  variant="Bold"
+-                  className="size-4.5"
+-                  color="currentColor"
+-                />
+-                Download started
+-              </>
+-            ) : (
+-              <>
+-                <ImportCurve
+-                  className="size-4.5 transition-transform duration-300 group-hover/download:translate-y-0.5"
+-                  color="currentColor"
+-                />
+-                Download file
+-              </>
+-            )}
+-          </motion.span>
+-        </AnimatePresence>
+-      </a>
+-    </Button>
+-  );
+-}
+-
+-function CopyLinkButton() {
+-  const [copied, setCopied] = React.useState(false);
+-
+-  React.useEffect(() => {
+-    if (!copied) return;
+-    const timer = setTimeout(() => setCopied(false), 1800);
+-    return () => clearTimeout(timer);
+-  }, [copied]);
+-
+-  const copy = async () => {
+-    try {
+-      await navigator.clipboard.writeText(window.location.href);
+-      setCopied(true);
+-      toast.success("Link copied");
+-    } catch {
+-      toast.error("Couldn't copy the link", {
+-        description: "Copy it from the address bar instead.",
+-      });
+-    }
+-  };
+-
+-  return (
+-    <Tooltip>
+-      <TooltipTrigger asChild>
+-        <Button
+-          type="button"
+-          variant="outline"
+-          size="icon-lg"
+-          className="size-11 rounded-lg"
+-          aria-label="Copy link"
+-          onClick={copy}
+-        >
+-          {copied ? (
+-            <CopySuccess
+-              className="size-4.5 text-success"
+-              color="currentColor"
+-            />
+-          ) : (
+-            <Copy className="size-4.5" color="currentColor" />
+-          )}
+-        </Button>
+-      </TooltipTrigger>
+-      <TooltipContent>{copied ? "Copied" : "Copy link"}</TooltipContent>
+-    </Tooltip>
+-  );
+-}
+ 
+-// A text button under the actions rather than a fourth icon beside them: that row
+-// has no room left on a phone, and downloading stays the main action.
+-function EmailToggle({
+-  open,
+-  disabled,
+-  onToggle,
+-}: {
+-  open: boolean;
+-  disabled: boolean;
+-  onToggle: () => void;
+-}) {
+-  return (
+-    <Button
+-      type="button"
+-      variant="ghost"
+-      size="sm"
+-      className={cn(!open && "text-muted-foreground")}
+-      aria-expanded={open}
+-      disabled={disabled}
+-      onClick={onToggle}
+-    >
+-      <Sms className="size-3.5" color="currentColor" />
+-      Send to someone by email
+-    </Button>
++      <PrivacyFooter>Stored privately · only people with this link can download it</PrivacyFooter>
++    </ShareCardFrame>
+   );
+ }
+ 
+-export function SharedFileSkeleton() {
++export function SharedDropSkeleton() {
+   return (
+     <motion.div
+       initial={{ opacity: 0 }}
+@@ -366,7 +124,7 @@ export function SharedFileSkeleton() {
+       exit={{ opacity: 0 }}
+       className="frame-double"
+       aria-busy
+-      aria-label="Loading file"
++      aria-label="Loading"
+     >
+       <div className="flex flex-col items-center rounded-[13px] border bg-card px-6 pt-10 pb-6 sm:px-10">
+         <div className="size-20 animate-pulse rounded-3xl bg-muted" />
+diff --git a/apps/web/components/share/shared-file-unavailable.tsx b/apps/web/components/share/shared-file-unavailable.tsx
+index a4ada12..329def6 100644
+--- a/apps/web/components/share/shared-file-unavailable.tsx
++++ b/apps/web/components/share/shared-file-unavailable.tsx
+@@ -2,11 +2,11 @@
+ 
+ import Link from "next/link";
+ import { motion } from "motion/react";
+-import { Danger, DocumentUpload, Refresh2, SearchStatus, Timer1, type Icon } from "iconsax-react";
++import { Danger, DocumentUpload, Refresh2, SearchStatus, Timer1, Trash, type Icon } from "iconsax-react";
+ import { Button } from "@/components/ui/button";
+ import { cn } from "@/lib/utils";
+ 
+-export type UnavailableReason = "not-found" | "expired" | "error";
++export type UnavailableReason = "not-found" | "expired" | "consumed" | "error";
+ 
+ const COPY: Record<UnavailableReason, { icon: Icon; tone: string; title: string; body: string }> = {
+   "not-found": {
+@@ -21,6 +21,12 @@ const COPY: Record<UnavailableReason, { icon: Icon; tone: string; title: string;
+     title: "This link has expired",
+     body: "Shared files are only kept for a limited time. Ask the sender to upload it again.",
+   },
++  consumed: {
++    icon: Trash,
++    tone: "bg-muted text-muted-foreground",
++    title: "Already downloaded",
++    body: "This link worked for one download only. The files were downloaded and then deleted. Ask the sender to share them again.",
++  },
+   error: {
+     icon: Danger,
+     tone: "bg-danger-subtle text-danger-muted",
+diff --git a/apps/web/components/share/shared-file.tsx b/apps/web/components/share/shared-file.tsx
+deleted file mode 100644
+index 5ea4acd..0000000
+--- a/apps/web/components/share/shared-file.tsx
++++ /dev/null
+@@ -1,36 +0,0 @@
+-"use client";
+-
+-import axios from "axios";
+-import { AnimatePresence } from "motion/react";
+-import { useGetFileInfo } from "@/hooks/files";
+-import { SharedFileCard, SharedFileSkeleton } from "./shared-file-card";
+-import { SharedFileUnavailable, type UnavailableReason } from "./shared-file-unavailable";
+-
+-/** Maps API errors to the screen to show: 404/400 → not found, 410 → expired. */
+-function reasonFor(error: unknown): UnavailableReason {
+-  if (axios.isAxiosError(error)) {
+-    const status = error.response?.status;
+-    if (status === 404 || status === 400) return "not-found";
+-    if (status === 410) return "expired";
+-  }
+-  return "error";
+-}
+-
+-export function SharedFile({ id }: { id: string }) {
+-  const { data, isPending, error, refetch } = useGetFileInfo(id);
+-
+-  // The API redirects this URL to a short-lived S3 download link.
+-  const downloadUrl = `${process.env.NEXT_PUBLIC_API_URL}/files/${id}/download`;
+-
+-  return (
+-    <AnimatePresence mode="wait">
+-      {isPending ? (
+-        <SharedFileSkeleton key="loading" />
+-      ) : error || !data ? (
+-        <SharedFileUnavailable key="unavailable" reason={reasonFor(error)} onRetry={() => refetch()} />
+-      ) : (
+-        <SharedFileCard key="file" file={data} downloadUrl={downloadUrl} />
+-      )}
+-    </AnimatePresence>
+-  );
+-}
+diff --git a/apps/web/components/share/unlock-card.tsx b/apps/web/components/share/unlock-card.tsx
+new file mode 100644
+index 0000000..af9e3ac
+--- /dev/null
++++ b/apps/web/components/share/unlock-card.tsx
+@@ -0,0 +1,140 @@
++"use client";
++
++import * as React from "react";
++import axios from "axios";
++import { motion } from "motion/react";
++import { Eye, EyeSlash, Lock, Unlock } from "iconsax-react";
++import { Button } from "@/components/ui/button";
++import { Input } from "@/components/ui/input";
++import { useUnlockDrop } from "@/hooks/drops";
++import { PASSWORD_MAX_LENGTH } from "@/lib/consts";
++import { errorMessage } from "@/lib/utils";
++import type { LockedDrop } from "@/types/drop";
++import { IconTile, LinkFacts, PrivacyFooter, ShareCardFrame, rise, stagger } from "./share-actions";
++
++/** What went wrong, in words: a wrong password says how many tries are left. */
++function unlockError(error: unknown): string {
++  if (axios.isAxiosError(error) && error.response?.data?.reason === "wrong-password") {
++    const left = Number(error.response.data.attemptsLeft);
++    if (left === 0) return "Wrong password. That was the last try for now: wait a few minutes.";
++    return `Wrong password. ${left} ${left === 1 ? "try" : "tries"} left.`;
++  }
++  return String(errorMessage(error));
++}
++
++/**
++ * A password-protected link before the password: only that it's protected, and
++ * when it expires. The API sets an httpOnly cookie on success, then the page
++ * fetches the link again, this time open.
++ */
++export function UnlockCard({ drop }: { drop: LockedDrop }) {
++  const [password, setPassword] = React.useState("");
++  const [visible, setVisible] = React.useState(false);
++  const { mutate: unlock, isPending, error, reset } = useUnlockDrop(drop.id);
++  const inputId = React.useId();
++  const hintId = `${inputId}-hint`;
++
++  const submit = (event: React.FormEvent<HTMLFormElement>) => {
++    event.preventDefault();
++    if (!password || isPending) return;
++    unlock(password, { onError: () => setPassword("") });
++  };
++
++  return (
++    <ShareCardFrame>
++      <motion.div
++        variants={stagger}
++        initial="hidden"
++        animate="show"
++        className="relative flex flex-col items-center px-6 pt-10 pb-6 text-center sm:px-10"
++      >
++        <motion.div variants={rise}>
++          <IconTile icon={Lock} />
++        </motion.div>
++        <motion.span
++          variants={rise}
++          className="mt-6 inline-flex items-center gap-1.5 rounded-full bg-brand-subtle px-2.5 py-0.5 text-xs font-medium text-brand-muted"
++        >
++          Protected link
++        </motion.span>
++        <motion.h1
++          variants={rise}
++          className="mt-3 font-heading text-2xl leading-tight font-medium tracking-tight sm:text-[28px]"
++        >
++          Enter the password
++        </motion.h1>
++        <motion.p variants={rise} className="mt-2 max-w-sm text-sm leading-relaxed text-pretty text-muted-foreground">
++          The sender protected this link. Ask them for the password if you don&apos;t have it.
++        </motion.p>
++
++        <LinkFacts expiresAt={drop.expiresAt} isProtected={false} burnAfterDownload={drop.burnAfterDownload} />
++
++        <motion.form
++          variants={rise}
++          onSubmit={submit}
++          noValidate
++          className="mt-8 flex w-full flex-col gap-1.5 text-left"
++        >
++          <label htmlFor={inputId} className="sr-only">
++            Password
++          </label>
++          <div className="flex items-center gap-2">
++            <div className="relative min-w-0 flex-1">
++              <Input
++                id={inputId}
++                type={visible ? "text" : "password"}
++                autoComplete="current-password"
++                autoFocus
++                spellCheck={false}
++                placeholder="Password"
++                maxLength={PASSWORD_MAX_LENGTH}
++                value={password}
++                onChange={(event) => {
++                  setPassword(event.target.value);
++                  if (error) reset();
++                }}
++                readOnly={isPending}
++                aria-invalid={!!error}
++                aria-describedby={hintId}
++                className="h-11 pr-10 pl-3"
++              />
++              <Button
++                type="button"
++                variant="ghost"
++                size="icon-sm"
++                onClick={() => setVisible((v) => !v)}
++                aria-label={visible ? "Hide password" : "Show password"}
++                aria-pressed={visible}
++                className="absolute top-1/2 right-1.5 -translate-y-1/2 text-muted-foreground"
++              >
++                {visible ? (
++                  <EyeSlash variant="Bulk" className="size-4" color="currentColor" />
++                ) : (
++                  <Eye variant="Bulk" className="size-4" color="currentColor" />
++                )}
++              </Button>
++            </div>
++            <Button
++              type="submit"
++              size="lg"
++              disabled={!password || isPending}
++              className="h-11 min-w-24 rounded-lg bg-brand text-brand-foreground hover:bg-brand-hover"
++            >
++              <Unlock variant="Bulk" className="size-4" color="currentColor" />
++              {isPending ? "Checking" : "Unlock"}
++            </Button>
++          </div>
++          <p
++            id={hintId}
++            aria-live="polite"
++            className={error ? "px-0.5 text-xs text-danger-muted" : "px-0.5 text-xs text-muted-foreground"}
++          >
++            {error ? unlockError(error) : "File names and previews appear once the link is unlocked."}
++          </p>
++        </motion.form>
++      </motion.div>
++
++      <PrivacyFooter>Stored privately · protected by a password</PrivacyFooter>
++    </ShareCardFrame>
++  );
++}

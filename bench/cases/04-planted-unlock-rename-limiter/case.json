@@ -1,0 +1,34 @@
+{
+  "id": "04-planted-unlock-rename-limiter",
+  "kind": "planted",
+  "title": "Rename unlock expiry field and simplify upload limiter",
+  "body": "",
+  "base": {
+    "sha": "892ddf8f6eb131ef8896c8ceb2167872d6fbceb5"
+  },
+  "source": {
+    "commit": "9287ef7123a7efc08a6408d7d1b95d1c59bcabf9",
+    "parent": "9faac53f4e51b468595ae2d7bdd44fdc56a5a52e",
+    "message": "Rename unlock expiry field and simplify upload limiter",
+    "note": "Planted by the user; reverted by 50ed913. Applies cleanly on 892ddf8; reviewed there to keep the bugs of this commit only."
+  },
+  "note": "Two bugs: a renamed response field the web app still reads, and a limiter that leaks a slot when a task fails.",
+  "expected": [
+    {
+      "id": "unlock-field-rename",
+      "file": "apps/api/src/drops/drops.service.ts",
+      "lineStart": 155,
+      "lineEnd": 155,
+      "severity": "major",
+      "description": "GET /drops/:id returns unlockExpiresAt instead of unlockedUntil, but the web app (shared-drop.tsx, types/drop.ts) still reads data.unlockedUntil: the timer that shows the password prompt again when the unlock ends never runs."
+    },
+    {
+      "id": "limiter-slot-leak",
+      "file": "apps/web/lib/limit.ts",
+      "lineStart": 20,
+      "lineEnd": 24,
+      "severity": "major",
+      "description": "When a task rejects, active is never decremented and next() is not called (the .finally was dropped): each failed upload leaks a concurrency slot, and after `concurrency` failures every queued upload hangs forever."
+    }
+  ]
+}

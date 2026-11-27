@@ -1,0 +1,23 @@
+{
+  "id": "07-synthetic-unlock-await",
+  "kind": "synthetic",
+  "title": "Name the password check in unlock",
+  "body": "Readability refactor, no behaviour change.",
+  "base": {
+    "sha": "892ddf8f6eb131ef8896c8ceb2167872d6fbceb5"
+  },
+  "source": {
+    "note": "Synthetic: written for this benchmark against 892ddf8."
+  },
+  "note": "verifyPassword is no longer awaited.",
+  "expected": [
+    {
+      "id": "unlock-missing-await",
+      "file": "apps/api/src/drops/drops.service.ts",
+      "lineStart": 182,
+      "lineEnd": 183,
+      "severity": "blocker",
+      "description": "verifyPassword returns a Promise; without await, passwordMatches is always truthy, so any password unlocks a protected drop."
+    }
+  ]
+}

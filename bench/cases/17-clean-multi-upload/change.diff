@@ -1,0 +1,2684 @@
+diff --git a/apps/web/app/page.tsx b/apps/web/app/page.tsx
+index a7a611a..c28e22d 100644
+--- a/apps/web/app/page.tsx
++++ b/apps/web/app/page.tsx
+@@ -4,7 +4,7 @@ import { Uploader } from "@/components/upload/uploader";
+ 
+ export default function Home() {
+   return (
+-    <div className="relative isolate flex min-h-dvh flex-col overflow-hidden">
++    <div className="relative isolate flex min-h-dvh flex-col overflow-clip">
+       <PageBackground />
+       <SiteHeader />
+ 
+@@ -18,8 +18,8 @@ export default function Home() {
+             <span className="text-dia pr-[0.04em]">anywhere.</span>
+           </h1>
+           <p className="animate-fade-up mt-5 max-w-md text-base leading-relaxed text-pretty text-muted-foreground [animation-delay:160ms]">
+-            Upload a file and get a private link you can send to anyone. No
+-            account, no app to install.
++            Upload a file, a few, or a whole folder and get one private link
++            you can send to anyone. No account, no app to install.
+           </p>
+         </div>
+ 
+diff --git a/apps/web/components/page-background.tsx b/apps/web/components/page-background.tsx
+index 2a4307b..306dfb3 100644
+--- a/apps/web/components/page-background.tsx
++++ b/apps/web/components/page-background.tsx
+@@ -1,4 +1,9 @@
+-/** Grid lines fading out from the top, plus the aurora glow rising behind the main content. */
++/**
++ * Grid lines fading out from the top, plus the aurora glow rising behind the main
++ * content. The glow is wider than a phone, so pages clip it with `overflow-clip`:
++ * `overflow-hidden` would make the page a scroll container that focusing a field
++ * can scroll sideways, with no way back.
++ */
+ export function PageBackground() {
+   return (
+     <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+diff --git a/apps/web/components/ui/switch.tsx b/apps/web/components/ui/switch.tsx
+new file mode 100644
+index 0000000..3bb1418
+--- /dev/null
++++ b/apps/web/components/ui/switch.tsx
+@@ -0,0 +1,28 @@
++"use client";
++
++import * as React from "react";
++import { cn } from "cn";
++import { Switch as SwitchPrimitive } from "radix-ui";
++
++function Switch({
++  className,
++  ...props
++}: React.ComponentProps<typeof SwitchPrimitive.Root>) {
++  return (
++    <SwitchPrimitive.Root
++      data-slot="switch"
++      className={cn(
++        "peer group/switch relative inline-flex h-[18.4px] w-8 shrink-0 items-center rounded-full border border-transparent transition-all outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 data-checked:bg-brand data-unchecked:bg-input dark:data-unchecked:bg-input/80",
++        className,
++      )}
++      {...props}
++    >
++      <SwitchPrimitive.Thumb
++        data-slot="switch-thumb"
++        className="pointer-events-none block size-4 rounded-full bg-background shadow-xs ring-0 transition-transform data-checked:translate-x-[calc(100%-2px)] data-checked:bg-brand-foreground data-unchecked:translate-x-0 dark:data-unchecked:bg-foreground"
++      />
++    </SwitchPrimitive.Root>
++  );
++}
++
++export { Switch };
+diff --git a/apps/web/components/upload/drop-row.tsx b/apps/web/components/upload/drop-row.tsx
+new file mode 100644
+index 0000000..2e0d1a8
+--- /dev/null
++++ b/apps/web/components/upload/drop-row.tsx
+@@ -0,0 +1,478 @@
++"use client";
++
++import * as React from "react";
++import { AnimatePresence, motion } from "motion/react";
++import {
++  ArrowDown2,
++  CloseCircle,
++  Copy,
++  CopySuccess,
++  DocumentCopy,
++  ExportSquare,
++  Folder2,
++  Link21,
++  Lock,
++  Sms,
++  TickCircle,
++  Timer1,
++  Trash,
++  Warning2,
++} from "iconsax-react";
++import { toast } from "sonner";
++import { Button } from "@/components/ui/button";
++import { Progress } from "@/components/ui/progress";
++import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
++import { ShareByEmail } from "@/components/share/share-by-email";
++import type { UploadDrop, UploadFile } from "@/hooks/use-drop-uploads";
++import { baseName, dropTitle, folderOf, sharedFolder } from "@/lib/drop-files";
++import { iconForFile } from "@/lib/file-icons";
++import { formatBytes, formatRelativeTime } from "@/lib/format";
++import { cn } from "@/lib/utils";
++
++/** Bytes sent so far and in all, over the files still in the drop (not the ones that failed). */
++function progressOf(files: UploadFile[]) {
++  const counted = files.filter((file) => file.status !== "error");
++  const total = counted.reduce((sum, file) => sum + file.file.size, 0);
++  const loaded = counted.reduce((sum, file) => sum + (file.file.size * file.percent) / 100, 0);
++  return { total, loaded, percent: total ? (loaded / total) * 100 : 0 };
++}
++
++/**
++ * One drop on the upload page: a single file looks like it always did; several
++ * files or a folder get one card with the list, overall progress and one link.
++ */
++export function DropRow({
++  drop,
++  onRemove,
++  onRemoveFile,
++}: {
++  drop: UploadDrop;
++  onRemove: () => void;
++  onRemoveFile: (fileKey: string) => void;
++}) {
++  const single = drop.files.length === 1 ? drop.files[0]! : null;
++  const { total, loaded, percent } = progressOf(drop.files);
++  const uploading = drop.status === "uploading";
++
++  const paths = drop.files.map((file) => file.path);
++  const folder = sharedFolder(paths);
++  const DropIcon = single ? iconForFile(single.file.name, single.file.type) : folder ? Folder2 : DocumentCopy;
++  const title = single ? baseName(single.path) : dropTitle(paths);
++
++  return (
++    <motion.li
++      layout
++      initial={{ opacity: 0, y: 14, scale: 0.97 }}
++      animate={{ opacity: 1, y: 0, scale: 1 }}
++      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
++      transition={{ type: "spring", stiffness: 380, damping: 30 }}
++      className={cn(
++        "overflow-hidden rounded-xl border bg-card p-3 shadow-xs",
++        drop.status === "error" && "border-danger/30 bg-danger-subtle",
++      )}
++    >
++      <div className="flex items-center gap-3">
++        <div className="relative">
++          <div
++            className={cn(
++              "flex size-10 items-center justify-center rounded-lg border bg-surface transition-colors",
++              uploading && "text-brand-muted",
++              drop.status === "done" && "text-foreground",
++              drop.status === "error" && "border-danger/30 text-danger-muted",
++            )}
++          >
++            <DropIcon variant="Bulk" className="size-5" color="currentColor" />
++          </div>
++          <AnimatePresence>
++            {drop.status === "done" && (
++              <motion.span
++                key="done"
++                initial={{ scale: 0, rotate: -45 }}
++                animate={{ scale: 1, rotate: 0 }}
++                transition={{ type: "spring", stiffness: 500, damping: 18 }}
++                className="absolute -right-1.5 -bottom-1.5 flex rounded-full bg-card text-success"
++              >
++                <TickCircle variant="Bold" className="size-4.5" color="currentColor" />
++              </motion.span>
++            )}
++          </AnimatePresence>
++        </div>
++
++        <div className="flex min-w-0 flex-1 flex-col gap-1">
++          <div className="flex items-baseline justify-between gap-3">
++            <span className="truncate text-sm font-medium" title={single?.path}>
++              {title}
++            </span>
++            <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
++              {uploading ? `${Math.floor(percent)}%` : formatBytes(total || drop.files[0]!.file.size)}
++            </span>
++          </div>
++          <StatusLine drop={drop} loaded={loaded} total={total} />
++        </div>
++
++        <Tooltip>
++          <TooltipTrigger asChild>
++            <Button
++              type="button"
++              variant="ghost"
++              size="icon-sm"
++              aria-label={`${uploading ? "Cancel" : "Remove"} ${title}`}
++              onClick={onRemove}
++              className="text-muted-foreground"
++            >
++              <CloseCircle variant="Bulk" className="size-4" color="currentColor" />
++            </Button>
++          </TooltipTrigger>
++          <TooltipContent>{uploading ? "Cancel" : "Remove"}</TooltipContent>
++        </Tooltip>
++      </div>
++
++      {uploading && (
++        <Progress
++          value={percent}
++          aria-label={`Uploading ${title}`}
++          className="mt-3 h-1 *:data-[slot=progress-indicator]:bg-brand *:data-[slot=progress-indicator]:duration-150"
++        />
++      )}
++
++      {!single && <FileList drop={drop} onRemoveFile={onRemoveFile} />}
++
++      <AnimatePresence initial={false}>
++        {drop.status === "done" && (
++          <motion.div
++            key="share"
++            initial={{ height: 0, opacity: 0 }}
++            animate={{ height: "auto", opacity: 1 }}
++            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
++          >
++            <SharePanel drop={drop} />
++          </motion.div>
++        )}
++      </AnimatePresence>
++    </motion.li>
++  );
++}
++
++function StatusLine({ drop, loaded, total }: { drop: UploadDrop; loaded: number; total: number }) {
++  if (drop.status === "uploading") {
++    const count = drop.files.filter((file) => file.status !== "error").length;
++    return (
++      <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
++        <span aria-hidden className="dot-running size-1.5 shrink-0 rounded-full" />
++        <span className="text-shimmer-brand font-medium">Uploading</span>
++        <span className="truncate font-mono tabular-nums">
++          {count > 1 && `${count} files · `}
++          {formatBytes(loaded)} of {formatBytes(total)}
++        </span>
++      </span>
++    );
++  }
++  if (drop.status === "error") {
++    return (
++      <span className="flex items-center gap-1.5 text-xs text-danger-muted">
++        <Warning2 variant="Bulk" className="size-3.5 shrink-0" color="currentColor" />
++        {drop.error}
++      </span>
++    );
++  }
++
++  const ready = drop.files.filter((file) => file.status === "done").length;
++  const failed = drop.files.length - ready;
++  return (
++    <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
++      <span className="font-medium text-success-muted">
++        Ready to share
++        {/* A folder's name doesn't say how many files it holds; "3 files" already does. */}
++        {sharedFolder(drop.files.map((file) => file.path)) && (
++          <span className="font-normal text-muted-foreground"> · {ready} files</span>
++        )}
++      </span>
++      {failed > 0 && <span className="text-danger-muted">{failed} not uploaded</span>}
++      <OptionTags drop={drop} />
++    </span>
++  );
++}
++
++/** The options a drop was uploaded with, so it's clear what the link does. */
++function OptionTags({ drop }: { drop: UploadDrop }) {
++  const tag = "inline-flex items-center gap-1 text-muted-foreground";
++  return (
++    <>
++      {drop.protected && (
++        <span className={tag}>
++          <Lock variant="Bulk" className="size-3" color="currentColor" />
++          Password
++        </span>
++      )}
++      {drop.burnAfterDownload && (
++        <span className={tag}>
++          <Trash variant="Bulk" className="size-3" color="currentColor" />
++          One download
++        </span>
++      )}
++      {drop.expiresAt && (
++        <span className={tag}>
++          <Timer1 variant="Bulk" className="size-3" color="currentColor" />
++          Expires {formatRelativeTime(drop.expiresAt)}
++        </span>
++      )}
++    </>
++  );
++}
++
++/** The files of a multi-file drop: open while uploading, folded away once the link is ready. */
++function FileList({ drop, onRemoveFile }: { drop: UploadDrop; onRemoveFile: (fileKey: string) => void }) {
++  const [openByUser, setOpenByUser] = React.useState<boolean | null>(null);
++  const open = openByUser ?? drop.status !== "done";
++  const listId = React.useId();
++  // While uploading, any file can be taken out; once the link is ready, uploaded
++  // files still can (they're deleted from the link), as long as one stays.
++  const uploaded = drop.files.filter((file) => file.status === "done").length;
++  const removable = (file: UploadFile) =>
++    drop.dropId !== "" &&
++    (drop.status === "uploading" || (drop.status === "done" && file.status === "done" && uploaded > 1));
++
++  return (
++    <div className="mt-3">
++      <Button
++        type="button"
++        variant="ghost"
++        size="xs"
++        className="-ml-1 text-muted-foreground"
++        aria-expanded={open}
++        aria-controls={listId}
++        onClick={() => setOpenByUser(!open)}
++      >
++        <ArrowDown2 className={cn("size-3 transition-transform", !open && "-rotate-90")} color="currentColor" />
++        {open ? "Hide files" : `Show ${drop.files.length} files`}
++      </Button>
++      <AnimatePresence initial={false}>
++        {open && (
++          <motion.ul
++            id={listId}
++            key="files"
++            initial={{ height: 0, opacity: 0 }}
++            animate={{ height: "auto", opacity: 1 }}
++            exit={{ height: 0, opacity: 0 }}
++            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
++            className="mt-1 flex max-h-72 flex-col overflow-y-auto rounded-lg border bg-surface"
++          >
++            {drop.files.map((file) => (
++              <FileLine
++                key={file.id}
++                file={file}
++                uploading={drop.status === "uploading"}
++                onRemove={removable(file) ? () => onRemoveFile(file.id) : undefined}
++              />
++            ))}
++          </motion.ul>
++        )}
++      </AnimatePresence>
++    </div>
++  );
++}
++
++function FileLine({
++  file,
++  uploading,
++  onRemove,
++}: {
++  file: UploadFile;
++  /** Whether its drop is still uploading: a waiting file only waits then. */
++  uploading: boolean;
++  onRemove?: () => void;
++}) {
++  const FileIcon = iconForFile(file.file.name, file.file.type);
++  const folder = folderOf(file.path);
++
++  return (
++    <li className="flex min-h-9 items-center gap-2 border-b px-2.5 py-1.5 last:border-b-0">
++      <FileIcon
++        variant="Bulk"
++        className={cn("size-4 shrink-0", file.status === "error" ? "text-danger-muted" : "text-muted-foreground")}
++        color="currentColor"
++      />
++      <div className="flex min-w-0 flex-1 flex-col">
++        <span className="truncate text-xs" title={file.path}>
++          {folder && <span className="text-muted-foreground">{folder}/</span>}
++          {baseName(file.path)}
++        </span>
++        {file.status === "error" && <span className="truncate text-2xs text-danger-muted">{file.error}</span>}
++        {file.status === "uploading" && (
++          <Progress
++            value={file.percent}
++            aria-label={`Uploading ${file.path}`}
++            className="mt-1 h-0.5 *:data-[slot=progress-indicator]:bg-brand *:data-[slot=progress-indicator]:duration-150"
++          />
++        )}
++      </div>
++      <span className="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
++        {file.status === "uploading" ? `${Math.floor(file.percent)}%` : formatBytes(file.file.size)}
++      </span>
++      <FileState file={file} uploading={uploading} />
++      {onRemove && (
++        <Button
++          type="button"
++          variant="ghost"
++          size="icon-xs"
++          aria-label={`Remove ${file.path}`}
++          disabled={file.removing}
++          onClick={onRemove}
++          className="text-muted-foreground"
++        >
++          <CloseCircle variant="Bulk" className="size-3.5" color="currentColor" />
++        </Button>
++      )}
++    </li>
++  );
++}
++
++function FileState({ file, uploading }: { file: UploadFile; uploading: boolean }) {
++  if (file.status === "done") {
++    return (
++      <TickCircle
++        variant="Bold"
++        className="size-3.5 shrink-0 text-success"
++        color="currentColor"
++        aria-label="Uploaded"
++      />
++    );
++  }
++  if (file.status === "error") {
++    return (
++      <Warning2
++        variant="Bulk"
++        className="size-3.5 shrink-0 text-danger-muted"
++        color="currentColor"
++        aria-label="Not uploaded"
++      />
++    );
++  }
++  if (file.status === "waiting" && uploading) {
++    return <span className="shrink-0 text-2xs text-muted-foreground">Waiting</span>;
++  }
++  return null;
++}
++
++function SharePanel({ drop }: { drop: UploadDrop }) {
++  const [emailOpen, setEmailOpen] = React.useState(false);
++
++  return (
++    <>
++      <ShareLink drop={drop} emailOpen={emailOpen} onToggleEmail={() => setEmailOpen((open) => !open)} />
++      <AnimatePresence initial={false}>
++        {emailOpen && (
++          <motion.div
++            key="email"
++            initial={{ height: 0, opacity: 0 }}
++            animate={{ height: "auto", opacity: 1 }}
++            exit={{ height: 0, opacity: 0 }}
++            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
++            // The padding, offset by the negative margin, leaves room for the input's focus ring.
++            className="-mx-1 -mb-1 overflow-hidden px-1 pb-1"
++          >
++            <ShareByEmail dropId={drop.dropId} protected={drop.protected} onSent={() => setEmailOpen(false)} />
++          </motion.div>
++        )}
++      </AnimatePresence>
++    </>
++  );
++}
++
++function ShareLink({
++  drop,
++  emailOpen,
++  onToggleEmail,
++}: {
++  drop: UploadDrop;
++  emailOpen: boolean;
++  onToggleEmail: () => void;
++}) {
++  const [copied, setCopied] = React.useState(false);
++  const url = drop.shareUrl;
++
++  React.useEffect(() => {
++    if (!copied) return;
++    const timer = setTimeout(() => setCopied(false), 1800);
++    return () => clearTimeout(timer);
++  }, [copied]);
++
++  const copy = async () => {
++    try {
++      await navigator.clipboard.writeText(url);
++      setCopied(true);
++      toast.success("Link copied", {
++        description: drop.protected
++          ? "Send the password separately: the link alone won't open it."
++          : drop.burnAfterDownload
++            ? "It works for one download, then the files are deleted."
++            : "Anyone with the link can download the files.",
++      });
++    } catch {
++      toast.error("Couldn't copy the link", { description: "Select it and copy it manually." });
++    }
++  };
++
++  return (
++    <div className="mt-3 flex items-center gap-2 rounded-lg border bg-surface py-1 pr-1 pl-2.5">
++      <Link21 className="size-4 shrink-0 text-brand-muted" color="currentColor" />
++      <a
++        href={url}
++        target="_blank"
++        rel="noopener noreferrer"
++        title="Open the share page in a new tab"
++        className="min-w-0 flex-1 truncate rounded-sm font-mono text-xs text-muted-foreground underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
++      >
++        {url.replace(/^https?:\/\//, "")}
++      </a>
++      <Tooltip>
++        <TooltipTrigger asChild>
++          <Button asChild variant="ghost" size="icon-sm" className="text-muted-foreground">
++            <a href={url} target="_blank" rel="noopener noreferrer" aria-label="Open share page in a new tab">
++              <ExportSquare className="size-4" color="currentColor" />
++            </a>
++          </Button>
++        </TooltipTrigger>
++        <TooltipContent>Open in new tab</TooltipContent>
++      </Tooltip>
++      <Tooltip>
++        <TooltipTrigger asChild>
++          <Button
++            type="button"
++            variant={emailOpen ? "secondary" : "ghost"}
++            size="icon-sm"
++            aria-label="Send by email"
++            aria-expanded={emailOpen}
++            onClick={onToggleEmail}
++            className={cn(!emailOpen && "text-muted-foreground")}
++          >
++            <Sms className="size-4" color="currentColor" />
++          </Button>
++        </TooltipTrigger>
++        <TooltipContent>Send by email</TooltipContent>
++      </Tooltip>
++      <Button type="button" size="sm" variant={copied ? "secondary" : "default"} onClick={copy} className="min-w-24">
++        <AnimatePresence mode="wait" initial={false}>
++          <motion.span
++            key={copied ? "copied" : "copy"}
++            initial={{ opacity: 0, y: 4 }}
++            animate={{ opacity: 1, y: 0 }}
++            exit={{ opacity: 0, y: -4 }}
++            transition={{ duration: 0.12 }}
++            className="inline-flex items-center gap-1.5"
++          >
++            {copied ? (
++              <>
++                <CopySuccess className="size-3.5 text-success" color="currentColor" /> Copied
++              </>
++            ) : (
++              <>
++                <Copy className="size-3.5" color="currentColor" /> Copy link
++              </>
++            )}
++          </motion.span>
++        </AnimatePresence>
++      </Button>
++    </div>
++  );
++}
+diff --git a/apps/web/components/upload/dropzone.tsx b/apps/web/components/upload/dropzone.tsx
+index f94a233..41f018b 100644
+--- a/apps/web/components/upload/dropzone.tsx
++++ b/apps/web/components/upload/dropzone.tsx
+@@ -2,24 +2,41 @@
+ 
+ import * as React from "react";
+ import { AnimatePresence, motion } from "motion/react";
+-import { DocumentUpload } from "iconsax-react";
++import { DocumentUpload, Folder2 } from "iconsax-react";
++import { Button } from "@/components/ui/button";
+ import { formatBytes } from "@/lib/format";
+-import { MAX_FILE_SIZE } from "@/lib/consts";
++import { MAX_DROP_SIZE, MAX_FILE_SIZE, MAX_FILES_PER_DROP } from "@/lib/consts";
++import {
++  filesFromInput,
++  readDataTransfer,
++  walkEntries,
++  type PickedFile,
++} from "@/lib/drop-files";
+ import { cn } from "@/lib/utils";
+ 
+ const hasFiles = (e: DragEvent) =>
+   e.dataTransfer?.types.includes("Files") ?? false;
+ 
+ /**
+- * Drop target for the whole page: files dropped (or pasted) anywhere are
+- * accepted, and the zone lights up as soon as a file is dragged into the
+- * window. Clicking or pressing Enter/Space opens the file picker.
++ * Drop target for the whole page: files and folders dropped (or pasted)
++ * anywhere are accepted, and the zone lights up as soon as a file is dragged
++ * into the window. Clicking or pressing Enter/Space opens the file picker; a
++ * second button picks a whole folder.
++ *
++ * Everything dropped or picked at once goes to `onFiles` together, to share one
++ * link. `tooMany` is set when a dropped folder held more than MAX_FILES_PER_DROP
++ * files: the walk stops there instead of reading the rest.
+  */
+-export function Dropzone({ onFiles }: { onFiles: (files: File[]) => void }) {
++export function Dropzone({
++  onFiles,
++}: {
++  onFiles: (files: PickedFile[], tooMany: boolean) => void;
++}) {
+   const [dragging, setDragging] = React.useState(false);
+   const [burst, setBurst] = React.useState(0);
+   const zoneRef = React.useRef<HTMLDivElement>(null);
+   const inputRef = React.useRef<HTMLInputElement>(null);
++  const folderInputRef = React.useRef<HTMLInputElement>(null);
+   const hintId = React.useId();
+ 
+   // Window listeners are attached once; read the latest callback through a ref.
+@@ -28,10 +45,10 @@ export function Dropzone({ onFiles }: { onFiles: (files: File[]) => void }) {
+     onFilesRef.current = onFiles;
+   }, [onFiles]);
+ 
+-  const accept = React.useCallback((files: File[]) => {
+-    if (!files.length) return;
+-    setBurst((n) => n + 1);
+-    onFilesRef.current(files);
++  // Empty results go through too: an empty folder deserves a word, not silence.
++  const accept = React.useCallback((files: PickedFile[], tooMany = false) => {
++    if (files.length) setBurst((n) => n + 1);
++    onFilesRef.current(files, tooMany);
+   }, []);
+ 
+   React.useEffect(() => {
+@@ -56,11 +73,23 @@ export function Dropzone({ onFiles }: { onFiles: (files: File[]) => void }) {
+       e.preventDefault();
+       depth = 0;
+       setDragging(false);
+-      accept(Array.from(e.dataTransfer?.files ?? []));
++      if (!e.dataTransfer) return;
++      // Read now: the browser empties the DataTransfer once this handler returns.
++      const { entries, files } = readDataTransfer(e.dataTransfer);
++      if (entries.length === 0) {
++        accept(files.map((file) => ({ file, path: file.name })));
++        return;
++      }
++      walkEntries(entries, MAX_FILES_PER_DROP).then(
++        ({ files: walked, tooMany }) => accept(walked, tooMany),
++        // A folder the browser won't let us read: fall back to the loose files.
++        () => accept(files.map((file) => ({ file, path: file.name }))),
++      );
+     };
+     const onPaste = (e: ClipboardEvent) => {
+       const files = Array.from(e.clipboardData?.files ?? []);
+-      if (files.length) accept(files);
++      if (files.length)
++        accept(files.map((file) => ({ file, path: file.name })));
+     };
+ 
+     window.addEventListener("dragenter", onEnter);
+@@ -131,7 +160,7 @@ export function Dropzone({ onFiles }: { onFiles: (files: File[]) => void }) {
+           type="button"
+           onClick={() => inputRef.current?.click()}
+           aria-describedby={hintId}
+-          className="relative z-10 flex w-full flex-col items-center gap-5 px-6 py-14 text-center outline-none sm:py-20"
++          className="relative z-10 flex w-full flex-col items-center gap-5 px-6 pt-14 pb-4 text-center outline-none sm:pt-20 sm:pb-5"
+         >
+           <IconTile dragging={dragging} burst={burst} />
+ 
+@@ -175,12 +204,15 @@ export function Dropzone({ onFiles }: { onFiles: (files: File[]) => void }) {
+             id={hintId}
+             className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
+           >
+-            <span>Any file type</span>
++            <span>Up to {MAX_FILES_PER_DROP} files per link</span>
+             <span
+               aria-hidden
+               className="size-1 rounded-full bg-border-strong"
+             />
+-            <span>Up to {formatBytes(MAX_FILE_SIZE, 0)} each</span>
++            <span>
++              {formatBytes(MAX_FILE_SIZE, 0)} each,{" "}
++              {formatBytes(MAX_DROP_SIZE, 0)} in all
++            </span>
+             <span
+               aria-hidden
+               className="size-1 rounded-full bg-border-strong max-sm:hidden"
+@@ -194,6 +226,19 @@ export function Dropzone({ onFiles }: { onFiles: (files: File[]) => void }) {
+           </p>
+         </button>
+ 
++        <div className="relative z-10 flex justify-center px-6 pb-12 sm:pb-16">
++          <Button
++            type="button"
++            variant="ghost"
++            size="sm"
++            className="text-muted-foreground"
++            onClick={() => folderInputRef.current?.click()}
++          >
++            <Folder2 variant="Bulk" className="size-3.5" color="currentColor" />
++            Choose a folder
++          </Button>
++        </div>
++
+         <input
+           ref={inputRef}
+           type="file"
+@@ -201,7 +246,22 @@ export function Dropzone({ onFiles }: { onFiles: (files: File[]) => void }) {
+           tabIndex={-1}
+           className="sr-only"
+           onChange={(e) => {
+-            accept(Array.from(e.target.files ?? []));
++            if (e.target.files) accept(filesFromInput(e.target.files));
++            e.target.value = "";
++          }}
++        />
++        <input
++          // webkitdirectory isn't in React's types; set it on the element.
++          ref={(input) => {
++            folderInputRef.current = input;
++            input?.setAttribute("webkitdirectory", "");
++          }}
++          type="file"
++          tabIndex={-1}
++          aria-hidden
++          className="sr-only"
++          onChange={(e) => {
++            if (e.target.files) accept(filesFromInput(e.target.files));
+             e.target.value = "";
+           }}
+         />
+diff --git a/apps/web/components/upload/expiry-picker.tsx b/apps/web/components/upload/expiry-picker.tsx
+index e30c0ee..471da81 100644
+--- a/apps/web/components/upload/expiry-picker.tsx
++++ b/apps/web/components/upload/expiry-picker.tsx
+@@ -11,6 +11,7 @@ import { TimePicker } from "@/components/ui/time-picker";
+ import { MAX_EXPIRY_MS, MIN_EXPIRY_MS } from "@/lib/consts";
+ import { formatRelativeTime } from "@/lib/format";
+ import { cn } from "@/lib/utils";
++import { OptionRow } from "./option-row";
+ 
+ const PRESETS = [
+   { label: "1 hour", at: () => addHours(new Date(), 1) },
+@@ -74,85 +75,79 @@ export function ExpiryPicker({ value, onChange }: { value: Date | null; onChange
+   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+ 
+   return (
+-    <div className="flex items-center justify-between gap-3 rounded-xl border bg-card/60 py-2 pr-2 pl-3 backdrop-blur">
+-      <div className="flex min-w-0 items-center gap-2.5">
+-        <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-brand-subtle text-brand-muted">
+-          <Timer1 variant="Bulk" className="size-4" color="currentColor" />
+-        </div>
+-        <div className="min-w-0">
+-          <p className="text-sm font-medium">Link expiry</p>
+-          <p className="truncate text-xs text-muted-foreground">
+-            {value ? `Stops working ${formatRelativeTime(value)}` : "Links work until you delete them"}
+-          </p>
+-        </div>
+-      </div>
+-
+-      <Popover open={open} onOpenChange={onOpenChange}>
+-        <PopoverTrigger asChild>
+-          <Button variant="outline" size="sm" className="shrink-0 gap-1.5 font-normal">
+-            <AnimatePresence mode="wait" initial={false}>
+-              <motion.span
+-                key={value ? value.toISOString() : "never"}
+-                initial={{ opacity: 0, y: 4 }}
+-                animate={{ opacity: 1, y: 0 }}
+-                exit={{ opacity: 0, y: -4 }}
+-                transition={{ duration: 0.12 }}
+-                className={cn(value && "font-medium text-brand-muted")}
++    <OptionRow
++      icon={Timer1}
++      title="Link expiry"
++      description={value ? `Stops working ${formatRelativeTime(value)}` : "Links work until you delete them"}
++      active={!!value}
++      control={
++        <Popover open={open} onOpenChange={onOpenChange}>
++          <PopoverTrigger asChild>
++            <Button variant="outline" size="sm" className="shrink-0 gap-1.5 font-normal">
++              <AnimatePresence mode="wait" initial={false}>
++                <motion.span
++                  key={value ? value.toISOString() : "never"}
++                  initial={{ opacity: 0, y: 4 }}
++                  animate={{ opacity: 1, y: 0 }}
++                  exit={{ opacity: 0, y: -4 }}
++                  transition={{ duration: 0.12 }}
++                  className={cn(value && "font-medium text-brand-muted")}
++                >
++                  {value ? format(value, "MMM d, HH:mm") : "Never"}
++                </motion.span>
++              </AnimatePresence>
++              <ArrowDown2 className="size-3.5 text-muted-foreground" color="currentColor" />
++            </Button>
++          </PopoverTrigger>
++
++          <PopoverContent align="end" className="w-auto p-0">
++            <div className="grid grid-cols-4 gap-1.5 border-b p-3">
++              {PRESETS.map((preset) => (
++                <Button key={preset.label} variant="secondary" size="xs" onClick={() => apply(preset.at())}>
++                  {preset.label}
++                </Button>
++              ))}
++            </div>
++
++            <Calendar
++              mode="single"
++              selected={draftDay}
++              onSelect={setDraftDay}
++              disabled={[{ before: today }, { after: lastDay }]}
++              startMonth={today}
++              endMonth={lastDay}
++              defaultMonth={draftDay}
++            />
++
++            <div className="flex items-center gap-2 border-t px-3 py-2.5">
++              <Clock className="size-4 text-muted-foreground" color="currentColor" />
++              <TimePicker value={draftTime} onChange={setDraftTime} aria-label="Expiry time" className="h-8 w-20" />
++              <span className="truncate text-2xs text-muted-foreground" title={timeZone}>
++                {timeZone}
++              </span>
++            </div>
++
++            <div className="flex items-center justify-between gap-2 border-t p-3">
++              <Button variant="ghost" size="sm" onClick={() => apply(null)}>
++                Never expire
++              </Button>
++              <Button
++                size="sm"
++                disabled={!!error}
++                onClick={() => candidate && apply(candidate)}
++                className="bg-brand text-brand-foreground hover:bg-brand-hover"
+               >
+-                {value ? format(value, "MMM d, HH:mm") : "Never"}
+-              </motion.span>
+-            </AnimatePresence>
+-            <ArrowDown2 className="size-3.5 text-muted-foreground" color="currentColor" />
+-          </Button>
+-        </PopoverTrigger>
+-
+-        <PopoverContent align="end" className="w-auto p-0">
+-          <div className="grid grid-cols-4 gap-1.5 border-b p-3">
+-            {PRESETS.map((preset) => (
+-              <Button key={preset.label} variant="secondary" size="xs" onClick={() => apply(preset.at())}>
+-                {preset.label}
++                Set expiry
+               </Button>
+-            ))}
+-          </div>
+-
+-          <Calendar
+-            mode="single"
+-            selected={draftDay}
+-            onSelect={setDraftDay}
+-            disabled={[{ before: today }, { after: lastDay }]}
+-            startMonth={today}
+-            endMonth={lastDay}
+-            defaultMonth={draftDay}
+-          />
+-
+-          <div className="flex items-center gap-2 border-t px-3 py-2.5">
+-            <Clock className="size-4 text-muted-foreground" color="currentColor" />
+-            <TimePicker value={draftTime} onChange={setDraftTime} aria-label="Expiry time" className="h-8 w-20" />
+-            <span className="truncate text-2xs text-muted-foreground" title={timeZone}>
+-              {timeZone}
+-            </span>
+-          </div>
+-
+-          <div className="flex items-center justify-between gap-2 border-t p-3">
+-            <Button variant="ghost" size="sm" onClick={() => apply(null)}>
+-              Never expire
+-            </Button>
+-            <Button
+-              size="sm"
+-              disabled={!!error}
+-              onClick={() => candidate && apply(candidate)}
+-              className="bg-brand text-brand-foreground hover:bg-brand-hover"
+-            >
+-              Set expiry
+-            </Button>
+-          </div>
+-          {error && draftDay && (
+-            <p role="alert" className="-mt-1 px-3 pb-3 text-right text-xs text-danger-muted">
+-              {error}
+-            </p>
+-          )}
+-        </PopoverContent>
+-      </Popover>
+-    </div>
++            </div>
++            {error && draftDay && (
++              <p role="alert" className="-mt-1 px-3 pb-3 text-right text-xs text-danger-muted">
++                {error}
++              </p>
++            )}
++          </PopoverContent>
++        </Popover>
++      }
++    />
+   );
+ }
+diff --git a/apps/web/components/upload/file-row.tsx b/apps/web/components/upload/file-row.tsx
+deleted file mode 100644
+index e74e0e4..0000000
+--- a/apps/web/components/upload/file-row.tsx
++++ /dev/null
+@@ -1,266 +0,0 @@
+-"use client";
+-
+-import * as React from "react";
+-import { AnimatePresence, motion } from "motion/react";
+-import { CloseCircle, Copy, CopySuccess, ExportSquare, Link21, Sms, TickCircle, Warning2 } from "iconsax-react";
+-import { toast } from "sonner";
+-import { Button } from "@/components/ui/button";
+-import { Progress } from "@/components/ui/progress";
+-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+-import { iconForFile } from "@/lib/file-icons";
+-import { formatBytes, formatRelativeTime } from "@/lib/format";
+-import { cn } from "@/lib/utils";
+-import { ShareByEmail } from "@/components/share/share-by-email";
+-
+-export type UploadItem = {
+-  id: string;
+-  file: File;
+-  status: "uploading" | "done" | "error";
+-  percent: number;
+-  /** The API's id for the file, once the upload is confirmed. */
+-  fileId: string;
+-  shareUrl: string;
+-  /** Share-link expiry this file was uploaded with; null = never. */
+-  expiresAt: Date | null;
+-  error?: string;
+-};
+-
+-export function FileRow({ item, onRemove }: { item: UploadItem; onRemove: () => void }) {
+-  const FileIcon = iconForFile(item.file.name, item.file.type);
+-  const loaded = Math.round((item.file.size * item.percent) / 100);
+-
+-  return (
+-    <motion.li
+-      layout
+-      initial={{ opacity: 0, y: 14, scale: 0.97 }}
+-      animate={{ opacity: 1, y: 0, scale: 1 }}
+-      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
+-      transition={{ type: "spring", stiffness: 380, damping: 30 }}
+-      className={cn(
+-        "overflow-hidden rounded-xl border bg-card p-3 shadow-xs",
+-        item.status === "error" && "border-danger/30 bg-danger-subtle",
+-      )}
+-    >
+-      <div className="flex items-center gap-3">
+-        <div className="relative">
+-          <div
+-            className={cn(
+-              "flex size-10 items-center justify-center rounded-lg border bg-surface transition-colors",
+-              item.status === "uploading" && "text-brand-muted",
+-              item.status === "done" && "text-foreground",
+-              item.status === "error" && "border-danger/30 text-danger-muted",
+-            )}
+-          >
+-            <FileIcon variant="Bulk" className="size-5" color="currentColor" />
+-          </div>
+-          <AnimatePresence>
+-            {item.status === "done" && (
+-              <motion.span
+-                key="done"
+-                initial={{ scale: 0, rotate: -45 }}
+-                animate={{ scale: 1, rotate: 0 }}
+-                transition={{ type: "spring", stiffness: 500, damping: 18 }}
+-                className="absolute -right-1.5 -bottom-1.5 flex rounded-full bg-card text-success"
+-              >
+-                <TickCircle variant="Bold" className="size-4.5" color="currentColor" />
+-              </motion.span>
+-            )}
+-          </AnimatePresence>
+-        </div>
+-
+-        <div className="flex min-w-0 flex-1 flex-col gap-1">
+-          <div className="flex items-baseline justify-between gap-3">
+-            <span className="truncate text-sm font-medium">{item.file.name}</span>
+-            <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+-              {item.status === "uploading" ? `${Math.floor(item.percent)}%` : formatBytes(item.file.size)}
+-            </span>
+-          </div>
+-          <StatusLine item={item} loaded={loaded} />
+-        </div>
+-
+-        <Tooltip>
+-          <TooltipTrigger asChild>
+-            <Button
+-              type="button"
+-              variant="ghost"
+-              size="icon-sm"
+-              aria-label={`${item.status === "uploading" ? "Cancel" : "Remove"} ${item.file.name}`}
+-              onClick={onRemove}
+-              className="text-muted-foreground"
+-            >
+-              <CloseCircle className="size-4" color="currentColor" />
+-            </Button>
+-          </TooltipTrigger>
+-          <TooltipContent>{item.status === "uploading" ? "Cancel" : "Remove"}</TooltipContent>
+-        </Tooltip>
+-      </div>
+-
+-      {item.status === "uploading" && (
+-        <Progress
+-          value={item.percent}
+-          aria-label={`Uploading ${item.file.name}`}
+-          className="mt-3 h-1 *:data-[slot=progress-indicator]:bg-brand *:data-[slot=progress-indicator]:duration-150"
+-        />
+-      )}
+-
+-      <AnimatePresence initial={false}>
+-        {item.status === "done" && (
+-          <motion.div
+-            key="share"
+-            initial={{ height: 0, opacity: 0 }}
+-            animate={{ height: "auto", opacity: 1 }}
+-            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+-          >
+-            <SharePanel url={item.shareUrl} fileId={item.fileId} />
+-          </motion.div>
+-        )}
+-      </AnimatePresence>
+-    </motion.li>
+-  );
+-}
+-
+-function SharePanel({ url, fileId }: { url: string; fileId: string }) {
+-  const [emailOpen, setEmailOpen] = React.useState(false);
+-
+-  return (
+-    <>
+-      <ShareLink url={url} emailOpen={emailOpen} onToggleEmail={() => setEmailOpen((open) => !open)} />
+-      <AnimatePresence initial={false}>
+-        {emailOpen && (
+-          <motion.div
+-            key="email"
+-            initial={{ height: 0, opacity: 0 }}
+-            animate={{ height: "auto", opacity: 1 }}
+-            exit={{ height: 0, opacity: 0 }}
+-            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+-            // The padding, offset by the negative margin, leaves room for the input's focus ring.
+-            className="-mx-1 -mb-1 overflow-hidden px-1 pb-1"
+-          >
+-            <ShareByEmail fileId={fileId} onSent={() => setEmailOpen(false)} />
+-          </motion.div>
+-        )}
+-      </AnimatePresence>
+-    </>
+-  );
+-}
+-
+-function StatusLine({ item, loaded }: { item: UploadItem; loaded: number }) {
+-  if (item.status === "uploading") {
+-    return (
+-      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+-        <span aria-hidden className="dot-running size-1.5 rounded-full" />
+-        <span className="text-shimmer-brand font-medium">Uploading</span>
+-        <span className="font-mono tabular-nums">
+-          {formatBytes(loaded)} of {formatBytes(item.file.size)}
+-        </span>
+-      </span>
+-    );
+-  }
+-  if (item.status === "error") {
+-    return (
+-      <span className="flex items-center gap-1.5 text-xs text-danger-muted">
+-        <Warning2 className="size-3.5 shrink-0" color="currentColor" />
+-        {item.error}
+-      </span>
+-    );
+-  }
+-  return (
+-    <span className="text-xs font-medium text-success-muted">
+-      Ready to share
+-      {item.expiresAt && (
+-        <span className="font-normal text-muted-foreground"> · link expires {formatRelativeTime(item.expiresAt)}</span>
+-      )}
+-    </span>
+-  );
+-}
+-
+-function ShareLink({
+-  url,
+-  emailOpen,
+-  onToggleEmail,
+-}: {
+-  url: string;
+-  emailOpen: boolean;
+-  onToggleEmail: () => void;
+-}) {
+-  const [copied, setCopied] = React.useState(false);
+-
+-  React.useEffect(() => {
+-    if (!copied) return;
+-    const timer = setTimeout(() => setCopied(false), 1800);
+-    return () => clearTimeout(timer);
+-  }, [copied]);
+-
+-  const copy = async () => {
+-    try {
+-      await navigator.clipboard.writeText(url);
+-      setCopied(true);
+-      toast.success("Link copied", { description: "Anyone with the link can download the file." });
+-    } catch {
+-      toast.error("Couldn't copy the link", { description: "Select it and copy it manually." });
+-    }
+-  };
+-
+-  return (
+-    <div className="mt-3 flex items-center gap-2 rounded-lg border bg-surface py-1 pr-1 pl-2.5">
+-      <Link21 className="size-4 shrink-0 text-brand-muted" color="currentColor" />
+-      <a
+-        href={url}
+-        target="_blank"
+-        rel="noopener noreferrer"
+-        title="Open the share page in a new tab"
+-        className="min-w-0 flex-1 truncate rounded-sm font-mono text-xs text-muted-foreground underline-offset-4 outline-none transition-colors hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+-      >
+-        {url.replace(/^https?:\/\//, "")}
+-      </a>
+-      <Tooltip>
+-        <TooltipTrigger asChild>
+-          <Button asChild variant="ghost" size="icon-sm" className="text-muted-foreground">
+-            <a href={url} target="_blank" rel="noopener noreferrer" aria-label="Open share page in a new tab">
+-              <ExportSquare className="size-4" color="currentColor" />
+-            </a>
+-          </Button>
+-        </TooltipTrigger>
+-        <TooltipContent>Open in new tab</TooltipContent>
+-      </Tooltip>
+-      <Tooltip>
+-        <TooltipTrigger asChild>
+-          <Button
+-            type="button"
+-            variant={emailOpen ? "secondary" : "ghost"}
+-            size="icon-sm"
+-            aria-label="Send by email"
+-            aria-expanded={emailOpen}
+-            onClick={onToggleEmail}
+-            className={cn(!emailOpen && "text-muted-foreground")}
+-          >
+-            <Sms className="size-4" color="currentColor" />
+-          </Button>
+-        </TooltipTrigger>
+-        <TooltipContent>Send by email</TooltipContent>
+-      </Tooltip>
+-      <Button type="button" size="sm" variant={copied ? "secondary" : "default"} onClick={copy} className="min-w-24">
+-        <AnimatePresence mode="wait" initial={false}>
+-          <motion.span
+-            key={copied ? "copied" : "copy"}
+-            initial={{ opacity: 0, y: 4 }}
+-            animate={{ opacity: 1, y: 0 }}
+-            exit={{ opacity: 0, y: -4 }}
+-            transition={{ duration: 0.12 }}
+-            className="inline-flex items-center gap-1.5"
+-          >
+-            {copied ? (
+-              <>
+-                <CopySuccess className="size-3.5 text-success" color="currentColor" /> Copied
+-              </>
+-            ) : (
+-              <>
+-                <Copy className="size-3.5" color="currentColor" /> Copy link
+-              </>
+-            )}
+-          </motion.span>
+-        </AnimatePresence>
+-      </Button>
+-    </div>
+-  );
+-}
+diff --git a/apps/web/components/upload/option-row.tsx b/apps/web/components/upload/option-row.tsx
+new file mode 100644
+index 0000000..e7847df
+--- /dev/null
++++ b/apps/web/components/upload/option-row.tsx
+@@ -0,0 +1,54 @@
++import type * as React from "react";
++import type { Icon } from "iconsax-react";
++import { cn } from "@/lib/utils";
++
++/**
++ * One option of the upload panel: an icon, a title, what it does, and its control
++ * on the right. `labelFor` turns the title into the control's label, so clicking
++ * it toggles a switch. `children` go under the row (e.g. a field it reveals).
++ */
++export function OptionRow({
++  icon: RowIcon,
++  title,
++  description,
++  control,
++  labelFor,
++  active = false,
++  children,
++}: {
++  icon: Icon;
++  title: string;
++  description: React.ReactNode;
++  control: React.ReactNode;
++  labelFor?: string;
++  /** Highlights the icon while the option is on. */
++  active?: boolean;
++  children?: React.ReactNode;
++}) {
++  const Title = labelFor ? "label" : "p";
++
++  return (
++    <div className="py-2 pr-2 pl-3">
++      <div className="flex items-center justify-between gap-3">
++        <div className="flex min-w-0 items-center gap-2.5">
++          <div
++            className={cn(
++              "flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors",
++              active ? "bg-brand text-brand-foreground" : "bg-brand-subtle text-brand-muted",
++            )}
++          >
++            <RowIcon variant="Bulk" className="size-4" color="currentColor" />
++          </div>
++          <div className="min-w-0">
++            <Title htmlFor={labelFor} className="block text-sm font-medium">
++              {title}
++            </Title>
++            <p className="text-xs text-pretty text-muted-foreground">{description}</p>
++          </div>
++        </div>
++        {control}
++      </div>
++      {children}
++    </div>
++  );
++}
+diff --git a/apps/web/components/upload/upload-options.tsx b/apps/web/components/upload/upload-options.tsx
+new file mode 100644
+index 0000000..cf52e2f
+--- /dev/null
++++ b/apps/web/components/upload/upload-options.tsx
+@@ -0,0 +1,129 @@
++"use client";
++
++import * as React from "react";
++import { AnimatePresence, motion } from "motion/react";
++import { Eye, EyeSlash, Lock, Trash } from "iconsax-react";
++import { Button } from "@/components/ui/button";
++import { Input } from "@/components/ui/input";
++import { Switch } from "@/components/ui/switch";
++import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "@/lib/consts";
++import type { DropOptions } from "@/types/drop";
++import { ExpiryPicker } from "./expiry-picker";
++import { OptionRow } from "./option-row";
++
++/**
++ * Link options for the next drops: expiry, password and "delete after the first
++ * download". Like the expiry, they apply to files dropped after they're set; each
++ * drop keeps the options it was uploaded with.
++ */
++export function UploadOptions({ value, onChange }: { value: DropOptions; onChange: (value: DropOptions) => void }) {
++  const set = (patch: Partial<DropOptions>) => onChange({ ...value, ...patch });
++
++  return (
++    <div className="divide-y rounded-xl border bg-card/60 backdrop-blur">
++      <ExpiryPicker value={value.expiresAt} onChange={(expiresAt) => set({ expiresAt })} />
++      <PasswordOption value={value.password} onChange={(password) => set({ password })} />
++      <BurnOption value={value.burnAfterDownload} onChange={(burnAfterDownload) => set({ burnAfterDownload })} />
++    </div>
++  );
++}
++
++function PasswordOption({ value, onChange }: { value: string | null; onChange: (value: string | null) => void }) {
++  // The switch opens the field (null → ""); turning it off drops the password.
++  const enabled = value !== null;
++  const [visible, setVisible] = React.useState(false);
++  const switchId = React.useId();
++  const inputId = React.useId();
++  const hintId = `${inputId}-hint`;
++  const tooShort = !!value && value.length < PASSWORD_MIN_LENGTH;
++
++  return (
++    <OptionRow
++      icon={Lock}
++      title="Password"
++      labelFor={switchId}
++      active={enabled}
++      description={enabled ? "Recipients enter it before they see anything" : "Anyone with the link can open it"}
++      control={<Switch id={switchId} checked={enabled} onCheckedChange={(next) => onChange(next ? "" : null)} />}
++    >
++      <AnimatePresence initial={false}>
++        {enabled && (
++          <motion.div
++            key="password"
++            initial={{ height: 0, opacity: 0 }}
++            animate={{ height: "auto", opacity: 1 }}
++            exit={{ height: 0, opacity: 0 }}
++            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
++            // The padding, offset by the negative margin, leaves room for the input's focus ring.
++            className="-mx-1 -mb-1 overflow-hidden px-1 pb-1"
++          >
++            <div className="flex flex-col gap-1.5 pt-2.5 sm:pl-9.5">
++              <label htmlFor={inputId} className="sr-only">
++                Link password
++              </label>
++              <div className="relative">
++                <Input
++                  id={inputId}
++                  type={visible ? "text" : "password"}
++                  autoComplete="new-password"
++                  autoFocus
++                  spellCheck={false}
++                  placeholder="Choose a password"
++                  maxLength={PASSWORD_MAX_LENGTH}
++                  value={value ?? ""}
++                  onChange={(event) => onChange(event.target.value)}
++                  aria-invalid={tooShort}
++                  aria-describedby={hintId}
++                  className="pr-9"
++                />
++                <Button
++                  type="button"
++                  variant="ghost"
++                  size="icon-xs"
++                  onClick={() => setVisible((v) => !v)}
++                  aria-label={visible ? "Hide password" : "Show password"}
++                  aria-pressed={visible}
++                  className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground"
++                >
++                  {visible ? (
++                    <EyeSlash variant="Bulk" className="size-3.5" color="currentColor" />
++                  ) : (
++                    <Eye variant="Bulk" className="size-3.5" color="currentColor" />
++                  )}
++                </Button>
++              </div>
++              <p
++                id={hintId}
++                aria-live="polite"
++                className={tooShort ? "text-xs text-danger-muted" : "text-xs text-muted-foreground"}
++              >
++                {tooShort
++                  ? `At least ${PASSWORD_MIN_LENGTH} characters`
++                  : "Send it to them separately: Dropwave never emails it, and can't show it again."}
++              </p>
++            </div>
++          </motion.div>
++        )}
++      </AnimatePresence>
++    </OptionRow>
++  );
++}
++
++function BurnOption({ value, onChange }: { value: boolean; onChange: (value: boolean) => void }) {
++  const switchId = React.useId();
++
++  return (
++    <OptionRow
++      icon={Trash}
++      title="Delete after the first download"
++      labelFor={switchId}
++      active={value}
++      description={
++        value
++          ? "Works for one download, then the files are deleted. No previews; several files download as one zip."
++          : "The link works for as many downloads as needed"
++      }
++      control={<Switch id={switchId} checked={value} onCheckedChange={onChange} />}
++    />
++  );
++}
+diff --git a/apps/web/components/upload/uploader.tsx b/apps/web/components/upload/uploader.tsx
+index aca42bc..22937d5 100644
+--- a/apps/web/components/upload/uploader.tsx
++++ b/apps/web/components/upload/uploader.tsx
+@@ -3,120 +3,61 @@
+ import * as React from "react";
+ import { AnimatePresence, motion } from "motion/react";
+ import { Flash, Link21, ShieldTick, type Icon } from "iconsax-react";
++import { toast } from "sonner";
+ import { Button } from "@/components/ui/button";
+-import { MAX_FILE_SIZE, MIN_EXPIRY_MS } from "@/lib/consts";
++import { useDropUploads } from "@/hooks/use-drop-uploads";
++import { MAX_DROP_SIZE, MAX_FILES_PER_DROP } from "@/lib/consts";
++import { withUniquePaths, type PickedFile } from "@/lib/drop-files";
+ import { formatBytes } from "@/lib/format";
++import type { DropOptions } from "@/types/drop";
++import { DropRow } from "./drop-row";
+ import { Dropzone } from "./dropzone";
+-import { ExpiryPicker } from "./expiry-picker";
+-import { FileRow, type UploadItem } from "./file-row";
+-import { errorMessage } from "@/lib/utils";
+-import { useUploadFile } from "@/hooks/files";
+-import axios from "axios";
+-
+-function createItem(file: File, expiresAt: Date | null): UploadItem {
+-  const base = { id: crypto.randomUUID(), file, percent: 0, fileId: "", shareUrl: "", expiresAt };
+-
+-  // A preset like "1 hour" can go stale if the page stays open; the API would reject it.
+-  if (expiresAt && expiresAt.getTime() - Date.now() < MIN_EXPIRY_MS) {
+-    return { ...base, status: "error", error: "Expiry time has passed. Pick a new one" };
+-  }
+-  if (file.size > MAX_FILE_SIZE) {
+-    return {
+-      ...base,
+-      status: "error",
+-      error: `Larger than ${formatBytes(MAX_FILE_SIZE, 0)}`,
+-    };
+-  }
+-  if (file.size === 0) {
+-    return { ...base, status: "error", error: "This file is empty" };
+-  }
+-  return { ...base, status: "uploading" };
+-}
++import { UploadOptions } from "./upload-options";
+ 
+ export function Uploader() {
+-  const [items, setItems] = React.useState<UploadItem[]>([]);
+-  // Applies to files dropped after it's set; each row keeps the expiry it was uploaded with.
+-  const [expiresAt, setExpiresAt] = React.useState<Date | null>(null);
+-  const { mutateAsync: uploadFile } = useUploadFile();
+-  // One AbortController per upload in progress, so Remove / Clear all can cancel it.
+-  const controllers = React.useRef(new Map<string, AbortController>());
+-
+-  const update = React.useCallback((id: string, patch: Partial<UploadItem>) => {
+-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+-  }, []);
+-
+-  const startUpload = React.useCallback(
+-    (item: UploadItem) => {
+-      const controller = new AbortController();
+-      controllers.current.set(item.id, controller);
+-
+-      uploadFile({
+-        file: item.file,
+-        expiresAt: item.expiresAt ?? undefined,
+-        signal: controller.signal,
+-        // Hold at 99% until confirm succeeds, so 100% means "really done".
+-        onProgress: (percent) =>
+-          update(item.id, { percent: Math.min(percent, 99) }),
+-      })
+-        .then(({ fileId }) =>
+-          update(item.id, {
+-            status: "done",
+-            percent: 100,
+-            fileId,
+-            shareUrl: `${window.location.origin}/s/${fileId}`,
+-          }),
+-        )
+-        .catch((error) => {
+-          if (axios.isCancel(error)) return; // removed by the user, not a failure
+-          update(item.id, {
+-            status: "error",
+-            error: String(errorMessage(error)),
+-          });
+-        })
+-        .finally(() => controllers.current.delete(item.id));
+-    },
+-    [uploadFile, update],
+-  );
+-
+-  const addFiles = React.useCallback(
+-    (files: File[]) => {
+-      const newItems = files.map((file) => createItem(file, expiresAt)).reverse();
+-      setItems((prev) => [...newItems, ...prev]);
+-      newItems.filter((i) => i.status === "uploading").forEach(startUpload);
+-    },
+-    [startUpload, expiresAt],
+-  );
++  const { drops, addDrop, removeFile, removeDrop, clearAll } = useDropUploads();
++  // Apply to files dropped after they're set; each drop keeps the options it was uploaded with.
++  const [options, setOptions] = React.useState<DropOptions>({
++    expiresAt: null,
++    password: null,
++    burnAfterDownload: false,
++  });
+ 
+-  const remove = (id: string) => {
+-    controllers.current.get(id)?.abort();
+-    setItems((prev) => prev.filter((i) => i.id !== id));
++  const onFiles = (files: PickedFile[], tooMany: boolean) => {
++    if (tooMany || files.length > MAX_FILES_PER_DROP) {
++      toast.error(`Up to ${MAX_FILES_PER_DROP} files per link`, {
++        description: "Zip the folder, or send it in a few smaller drops.",
++      });
++      return;
++    }
++    if (files.length === 0) {
++      toast.error("Nothing to upload", { description: "That folder is empty, or only holds hidden files." });
++      return;
++    }
++    const total = files.reduce((sum, { file }) => sum + file.size, 0);
++    if (total > MAX_DROP_SIZE) {
++      toast.error(`Up to ${formatBytes(MAX_DROP_SIZE, 0)} per link`, {
++        description: `These files add up to ${formatBytes(total)}. Send them in a few smaller drops.`,
++      });
++      return;
++    }
++    addDrop(withUniquePaths(files), options);
+   };
+ 
+-  const clearAll = () => {
+-    controllers.current.forEach((c) => c.abort());
+-    setItems([]);
+-  };
+-
+-  // Cancel uploads still running if the user leaves the page.
+-  React.useEffect(() => {
+-    const map = controllers.current;
+-    return () => map.forEach((c) => c.abort());
+-  }, []);
+-
+-  const ready = items.filter((i) => i.status === "done").length;
++  const ready = drops.filter((drop) => drop.status === "done").length;
+ 
+   return (
+     <div className="flex flex-col gap-6">
+       <div className="flex flex-col gap-3">
+-        <Dropzone onFiles={addFiles} />
+-        <ExpiryPicker value={expiresAt} onChange={setExpiresAt} />
++        <Dropzone onFiles={onFiles} />
++        <UploadOptions value={options} onChange={setOptions} />
+       </div>
+ 
+       <AnimatePresence mode="popLayout" initial={false}>
+-        {items.length > 0 ? (
++        {drops.length > 0 ? (
+           <motion.section
+             key="list"
+-            aria-label="Your files"
++            aria-label="Your links"
+             initial={{ opacity: 0, y: 8 }}
+             animate={{ opacity: 1, y: 0 }}
+             exit={{ opacity: 0, y: 8 }}
+@@ -124,35 +65,27 @@ export function Uploader() {
+           >
+             <div className="flex items-center justify-between px-1">
+               <p className="text-xs text-muted-foreground" aria-live="polite">
+-                <span className="font-medium text-foreground">
+-                  {items.length}
+-                </span>{" "}
+-                {items.length === 1 ? "file" : "files"}
++                <span className="font-medium text-foreground">{drops.length}</span>{" "}
++                {drops.length === 1 ? "link" : "links"}
+                 {ready > 0 && (
+                   <>
+                     {" · "}
+-                    <span className="font-medium text-success-muted">
+-                      {ready} ready
+-                    </span>
++                    <span className="font-medium text-success-muted">{ready} ready</span>
+                   </>
+                 )}
+               </p>
+-              <Button
+-                variant="ghost"
+-                size="xs"
+-                className="text-muted-foreground"
+-                onClick={clearAll}
+-              >
++              <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={clearAll}>
+                 Clear all
+               </Button>
+             </div>
+             <ul className="flex flex-col gap-2">
+               <AnimatePresence initial={false}>
+-                {items.map((item) => (
+-                  <FileRow
+-                    key={item.id}
+-                    item={item}
+-                    onRemove={() => remove(item.id)}
++                {drops.map((drop) => (
++                  <DropRow
++                    key={drop.id}
++                    drop={drop}
++                    onRemove={() => removeDrop(drop.id)}
++                    onRemoveFile={(fileKey) => removeFile(drop.id, fileKey)}
+                   />
+                 ))}
+               </AnimatePresence>
+@@ -169,7 +102,7 @@ export function Uploader() {
+             <Feature
+               icon={ShieldTick}
+               title="Private by default"
+-              body="Files sit in a private bucket. Only your link opens them."
++              body="Files sit in a private bucket. Only your link opens them, with a password if you add one."
+             />
+             <Feature
+               icon={Flash}
+@@ -179,7 +112,7 @@ export function Uploader() {
+             <Feature
+               icon={Link21}
+               title="One link to send"
+-              body="Copy it the moment your upload finishes. No account needed."
++              body="A file, a few, or a whole folder: one link, ready the moment the upload finishes."
+             />
+           </motion.ul>
+         )}
+@@ -188,24 +121,14 @@ export function Uploader() {
+   );
+ }
+ 
+-function Feature({
+-  icon: FeatureIcon,
+-  title,
+-  body,
+-}: {
+-  icon: Icon;
+-  title: string;
+-  body: string;
+-}) {
++function Feature({ icon: FeatureIcon, title, body }: { icon: Icon; title: string; body: string }) {
+   return (
+     <li className="group rounded-xl border bg-card/60 p-4 backdrop-blur transition-colors hover:border-border-strong">
+       <div className="mb-3 flex size-8 items-center justify-center rounded-lg bg-brand-subtle text-brand-muted transition-transform duration-300 group-hover:-translate-y-0.5">
+         <FeatureIcon variant="Bulk" className="size-4.5" color="currentColor" />
+       </div>
+       <h3 className="text-sm">{title}</h3>
+-      <p className="mt-1 text-xs leading-relaxed text-pretty text-muted-foreground">
+-        {body}
+-      </p>
++      <p className="mt-1 text-xs leading-relaxed text-pretty text-muted-foreground">{body}</p>
+     </li>
+   );
+ }
+diff --git a/apps/web/hooks/drops.ts b/apps/web/hooks/drops.ts
+new file mode 100644
+index 0000000..8a44e12
+--- /dev/null
++++ b/apps/web/hooks/drops.ts
+@@ -0,0 +1,61 @@
++import { qk } from "@/lib/query-keys";
++import { errorMessage } from "@/lib/utils";
++import dropsService from "@/services/drops";
++import type { DropInfo, ShareArgs } from "@/types/drop";
++import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
++import axios from "axios";
++import { toast } from "sonner";
++
++export const useShareDrop = () =>
++  useMutation({
++    mutationFn: ({ dropId, emails }: ShareArgs) => dropsService.share(dropId, { emails }),
++    onError: (error) => toast.error(String(errorMessage(error))),
++  });
++
++// Only fetched while the preview dialog is open. The URL is valid for an hour,
++// so cache it a bit less than that and reopening the dialog is instant.
++export const useGetPreview = (dropId: string, fileId: string, enabled: boolean) =>
++  useQuery({
++    queryKey: [...qk.drops.byId(dropId), "preview", fileId],
++    queryFn: () => dropsService.getPreview(dropId, fileId),
++    enabled,
++    staleTime: 50 * 60 * 1000,
++    retry: false,
++  });
++
++export const useGetPreviewText = (url: string | undefined) =>
++  useQuery({
++    queryKey: ["preview-text", url],
++    queryFn: () => dropsService.getText(url!),
++    enabled: !!url,
++    staleTime: Infinity,
++    retry: false,
++  });
++
++const isChecking = (drop: DropInfo | undefined) =>
++  !!drop && !drop.locked && drop.files.some((file) => file.status === "SCANNING");
++
++export const useGetDrop = (dropId: string) =>
++  useQuery({
++    queryKey: qk.drops.byId(dropId),
++    queryFn: () => dropsService.getDrop(dropId),
++    refetchOnWindowFocus: false,
++    // The file check takes seconds: poll quickly until it's done, then every minute
++    // (to notice an expiry or a burn-after-download link being used).
++    refetchInterval: (query) => (isChecking(query.state.data) ? 5 * 1000 : 60 * 1000),
++    // A 4xx (wrong link, expired) won't change on retry; only retry server/network errors.
++    retry: (failureCount, error) => {
++      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
++      if (status && status < 500) return false;
++      return failureCount < 1;
++    },
++  });
++
++/** Sends the password; the API answers with an httpOnly cookie, then the drop is refetched open. */
++export const useUnlockDrop = (dropId: string) => {
++  const queryClient = useQueryClient();
++  return useMutation({
++    mutationFn: (password: string) => dropsService.unlock(dropId, password),
++    onSuccess: () => queryClient.invalidateQueries({ queryKey: qk.drops.byId(dropId) }),
++  });
++};
+diff --git a/apps/web/hooks/files.ts b/apps/web/hooks/files.ts
+deleted file mode 100644
+index 96d8839..0000000
+--- a/apps/web/hooks/files.ts
++++ /dev/null
+@@ -1,76 +0,0 @@
+-import { qk } from "@/lib/query-keys";
+-import { errorMessage } from "@/lib/utils";
+-import filesService from "@/services/files";
+-import { ShareArgs, UploadArgs } from "@/types/file";
+-import { useMutation, useQuery } from "@tanstack/react-query";
+-import axios from "axios";
+-import { toast } from "sonner";
+-
+-export const useUploadFile = () =>
+-  useMutation({
+-    mutationFn: async ({ file, expiresAt, onProgress, signal }: UploadArgs) => {
+-      const contentType = file.type || "application/octet-stream";
+-      const { fileId, uploadUrl } = await filesService.generate({
+-        filename: file.name,
+-        contentType,
+-        size: file.size,
+-        expiresAt,
+-      });
+-      await filesService.uploadToS3(
+-        uploadUrl,
+-        file,
+-        contentType,
+-        onProgress,
+-        signal,
+-      );
+-      return filesService.confirm(fileId);
+-    },
+-    onError: (error) => {
+-      // Removing a file mid-upload aborts it; that's not a failure worth a toast.
+-      if (axios.isCancel(error)) return;
+-      toast.error(errorMessage(error));
+-    },
+-  });
+-
+-export const useShareFile = () =>
+-  useMutation({
+-    mutationFn: ({ fileId, emails }: ShareArgs) =>
+-      filesService.share(fileId, { emails }),
+-    onError: (error) => toast.error(String(errorMessage(error))),
+-  });
+-
+-// Only fetched while the preview dialog is open. The URL is valid for an hour,
+-// so cache it a bit less than that and reopening the dialog is instant.
+-export const useGetPreview = (fileId: string, enabled: boolean) =>
+-  useQuery({
+-    queryKey: [...qk.files.byId(fileId), "preview"],
+-    queryFn: () => filesService.getPreview(fileId),
+-    enabled,
+-    staleTime: 50 * 60 * 1000,
+-    retry: false,
+-  });
+-
+-export const useGetPreviewText = (url: string | undefined) =>
+-  useQuery({
+-    queryKey: ["preview-text", url],
+-    queryFn: () => filesService.getText(url!),
+-    enabled: !!url,
+-    staleTime: Infinity,
+-    retry: false,
+-  });
+-
+-export const useGetFileInfo = (fileId: string) =>
+-  useQuery({
+-    queryKey: qk.files.byId(fileId),
+-    queryFn: () => filesService.getFileInfo(fileId),
+-    refetchOnWindowFocus: false,
+-    refetchInterval: 60 * 1000, // 5 minutes
+-    // A 4xx (wrong link, expired) won't change on retry; only retry server/network errors.
+-    retry: (failureCount, error) => {
+-      const status = axios.isAxiosError(error)
+-        ? error.response?.status
+-        : undefined;
+-      if (status && status < 500) return false;
+-      return failureCount < 1;
+-    },
+-  });
+diff --git a/apps/web/hooks/use-drop-uploads.ts b/apps/web/hooks/use-drop-uploads.ts
+new file mode 100644
+index 0000000..da96a5b
+--- /dev/null
++++ b/apps/web/hooks/use-drop-uploads.ts
+@@ -0,0 +1,302 @@
++"use client";
++
++import * as React from "react";
++import axios from "axios";
++import { toast } from "sonner";
++import {
++  MAX_FILE_SIZE,
++  MIN_EXPIRY_MS,
++  PASSWORD_MAX_LENGTH,
++  PASSWORD_MIN_LENGTH,
++  UPLOAD_CONCURRENCY,
++  UPLOAD_URL_FRESH_MS,
++} from "@/lib/consts";
++import type { PickedFile } from "@/lib/drop-files";
++import { formatBytes } from "@/lib/format";
++import { createLimiter } from "@/lib/limit";
++import { errorMessage } from "@/lib/utils";
++import dropsService from "@/services/drops";
++import type { CreateDropResponse, DropOptions } from "@/types/drop";
++
++export type UploadFile = {
++  id: string;
++  file: File;
++  path: string;
++  status: "waiting" | "uploading" | "done" | "error";
++  percent: number;
++  error?: string;
++  /** Being deleted from its link (an uploaded file the user took out). */
++  removing?: boolean;
++};
++
++/** Everything dropped at once: one link, whatever the number of files. */
++export type UploadDrop = {
++  id: string;
++  status: "uploading" | "done" | "error";
++  files: UploadFile[];
++  /** The API's id for the drop, once it's created. */
++  dropId: string;
++  shareUrl: string;
++  /** The options it was uploaded with; the password itself isn't kept. */
++  expiresAt: Date | null;
++  protected: boolean;
++  burnAfterDownload: boolean;
++  error?: string;
++};
++
++/** Why these options can't be used, or null. */
++function optionsError(options: DropOptions): string | null {
++  // A preset like "1 hour" can go stale if the page stays open; the API would reject it.
++  if (options.expiresAt && options.expiresAt.getTime() - Date.now() < MIN_EXPIRY_MS) {
++    return "Expiry time has passed. Pick a new one";
++  }
++  if (options.password === null) return null;
++  // The switch says the link is protected: never let it go out without a password.
++  if (options.password === "") return "Enter a password, or turn Password off";
++  const { length } = options.password;
++  if (length < PASSWORD_MIN_LENGTH || length > PASSWORD_MAX_LENGTH) {
++    return `The password needs ${PASSWORD_MIN_LENGTH} to ${PASSWORD_MAX_LENGTH} characters`;
++  }
++  return null;
++}
++
++function createFile({ file, path }: PickedFile): UploadFile {
++  const base = { id: crypto.randomUUID(), file, path, percent: 0 };
++  if (file.size > MAX_FILE_SIZE) {
++    return { ...base, status: "error", error: `Larger than ${formatBytes(MAX_FILE_SIZE, 0)}` };
++  }
++  if (file.size === 0) return { ...base, status: "error", error: "This file is empty" };
++  return { ...base, status: "waiting" };
++}
++
++const contentTypeOf = (file: File) => file.type || "application/octet-stream";
++
++/**
++ * The upload page's state: each drop's files, their progress, and the link once
++ * they're in. Files upload straight to S3, UPLOAD_CONCURRENCY at a time across
++ * the page; a file that fails is taken out of its drop, and the link opens with
++ * the files that made it.
++ */
++export function useDropUploads() {
++  const [drops, setDrops] = React.useState<UploadDrop[]>([]);
++  // The latest list, for event handlers that act on it (side effects stay out of setState).
++  const dropsRef = React.useRef(drops);
++  React.useEffect(() => {
++    dropsRef.current = drops;
++  }, [drops]);
++
++  // Per file: cancels its upload when it's removed.
++  const controllers = React.useRef(new Map<string, AbortController>());
++  // Files and drops removed by the user while their upload was still running.
++  const removed = React.useRef(new Set<string>());
++  // Per drop and per file, once the API created them.
++  const createdDrops = React.useRef(new Map<string, { dropId: string; uploadToken: string }>());
++  const createdFiles = React.useRef(new Map<string, { id: string; uploadUrl: string }>());
++  const [limit] = React.useState(() => createLimiter(UPLOAD_CONCURRENCY));
++
++  const updateDrop = React.useCallback((id: string, update: (drop: UploadDrop) => UploadDrop) => {
++    setDrops((prev) => prev.map((drop) => (drop.id === id ? update(drop) : drop)));
++  }, []);
++
++  const updateFile = React.useCallback(
++    (dropKey: string, fileKey: string, patch: Partial<UploadFile>) => {
++      updateDrop(dropKey, (drop) => ({
++        ...drop,
++        files: drop.files.map((file) => (file.id === fileKey ? { ...file, ...patch } : file)),
++      }));
++    },
++    [updateDrop],
++  );
++
++  /**
++   * Takes a file out of its drop on the API, so the link opens without it. Best
++   * effort: if this fails, the file never finished, and its drop stays hidden.
++   */
++  const removeOnServer = React.useCallback((dropKey: string, fileKey: string) => {
++    const drop = createdDrops.current.get(dropKey);
++    const file = createdFiles.current.get(fileKey);
++    if (!drop || !file) return;
++    dropsService.removeFile(drop.dropId, file.id, drop.uploadToken).catch(() => {});
++  }, []);
++
++  const uploadOne = React.useCallback(
++    async (dropKey: string, file: UploadFile, issuedAt: number) => {
++      const drop = createdDrops.current.get(dropKey)!;
++      const serverFile = createdFiles.current.get(file.id)!;
++      // Removed while the drop was being created, or while waiting for its turn.
++      if (removed.current.has(file.id) || removed.current.has(dropKey)) {
++        removeOnServer(dropKey, file.id);
++        return;
++      }
++
++      const controller = new AbortController();
++      controllers.current.set(file.id, controller);
++      updateFile(dropKey, file.id, { status: "uploading" });
++      try {
++        // Waited too long for its turn: the first URL is about to expire.
++        const uploadUrl =
++          Date.now() - issuedAt < UPLOAD_URL_FRESH_MS
++            ? serverFile.uploadUrl
++            : (await dropsService.uploadUrl(drop.dropId, serverFile.id, drop.uploadToken)).uploadUrl;
++        await dropsService.uploadToS3(
++          uploadUrl,
++          file.file,
++          contentTypeOf(file.file),
++          // Hold at 99% until confirm succeeds, so 100% means "really done".
++          (percent) => updateFile(dropKey, file.id, { percent: Math.min(percent, 99) }),
++          controller.signal,
++        );
++        await dropsService.confirm(drop.dropId, serverFile.id, drop.uploadToken);
++        updateFile(dropKey, file.id, { status: "done", percent: 100 });
++      } catch (error) {
++        if (axios.isCancel(error)) return; // removed by the user, not a failure
++        updateFile(dropKey, file.id, { status: "error", error: String(errorMessage(error)) });
++        removeOnServer(dropKey, file.id);
++      } finally {
++        controllers.current.delete(file.id);
++      }
++    },
++    [removeOnServer, updateFile],
++  );
++
++  const run = React.useCallback(
++    async (drop: UploadDrop, options: DropOptions) => {
++      const waiting = drop.files.filter((file) => file.status === "waiting");
++      let response: CreateDropResponse;
++      try {
++        response = await dropsService.create({
++          files: waiting.map(({ file, path }) => ({ path, contentType: contentTypeOf(file), size: file.size })),
++          expiresAt: options.expiresAt ?? undefined,
++          password: options.password ?? undefined,
++          burnAfterDownload: options.burnAfterDownload || undefined,
++        });
++      } catch (error) {
++        updateDrop(drop.id, (d) => ({ ...d, status: "error", error: String(errorMessage(error)) }));
++        return;
++      }
++      const { dropId, uploadToken } = response;
++      createdDrops.current.set(drop.id, { dropId, uploadToken });
++      // The API answers in the order the files were sent.
++      waiting.forEach((file, index) => createdFiles.current.set(file.id, response.files[index]!));
++      updateDrop(drop.id, (d) => ({ ...d, dropId }));
++
++      const issuedAt = Date.now();
++      await Promise.all(waiting.map((file) => limit(() => uploadOne(drop.id, file, issuedAt))));
++
++      updateDrop(drop.id, (d) => {
++        if (d.files.some((file) => file.status === "done")) {
++          return { ...d, status: "done", shareUrl: `${window.location.origin}/s/${dropId}` };
++        }
++        const error = d.files.length === 1 ? d.files[0]!.error : "None of the files could be uploaded";
++        return { ...d, status: "error", error };
++      });
++    },
++    [limit, updateDrop, uploadOne],
++  );
++
++  /** Starts one drop (one link) with everything dropped at once. */
++  const addDrop = React.useCallback(
++    (picked: PickedFile[], options: DropOptions) => {
++      const files = picked.map(createFile);
++      const problem =
++        optionsError(options) ??
++        (files.every((file) => file.status === "error")
++          ? files.length === 1
++            ? files[0]!.error
++            : "None of these files can be uploaded"
++          : null);
++      const drop: UploadDrop = {
++        id: crypto.randomUUID(),
++        status: problem ? "error" : "uploading",
++        files,
++        dropId: "",
++        shareUrl: "",
++        expiresAt: options.expiresAt,
++        protected: options.password !== null,
++        burnAfterDownload: options.burnAfterDownload,
++        error: problem ?? undefined,
++      };
++      setDrops((prev) => [drop, ...prev]);
++      if (!problem) void run(drop, options);
++    },
++    [run],
++  );
++
++  const dropFileFromList = React.useCallback((dropKey: string, fileKey: string) => {
++    setDrops((prev) =>
++      prev.flatMap((drop) => {
++        if (drop.id !== dropKey) return [drop];
++        const files = drop.files.filter((file) => file.id !== fileKey);
++        return files.length > 0 ? [{ ...drop, files }] : [];
++      }),
++    );
++  }, []);
++
++  /**
++   * Deletes an uploaded file from its link, and only then from the list: unlike
++   * a cancelled upload, it's already part of what the link shares.
++   */
++  const removeUploaded = React.useCallback(
++    async (dropKey: string, fileKey: string) => {
++      const drop = createdDrops.current.get(dropKey);
++      const file = createdFiles.current.get(fileKey);
++      if (!drop || !file) return;
++      updateFile(dropKey, fileKey, { removing: true });
++      try {
++        await dropsService.removeFile(drop.dropId, file.id, drop.uploadToken);
++        dropFileFromList(dropKey, fileKey);
++      } catch (error) {
++        updateFile(dropKey, fileKey, { removing: false });
++        toast.error("Couldn't remove the file", { description: String(errorMessage(error)) });
++      }
++    },
++    [dropFileFromList, updateFile],
++  );
++
++  /**
++   * Takes one file out of a drop. One still on its way is cancelled (the last one
++   * takes the drop with it); one already uploaded is deleted from the link.
++   */
++  const removeFile = React.useCallback(
++    (dropKey: string, fileKey: string) => {
++      const file = dropsRef.current.find((d) => d.id === dropKey)?.files.find((f) => f.id === fileKey);
++      if (file?.status === "done") {
++        void removeUploaded(dropKey, fileKey);
++        return;
++      }
++      removed.current.add(fileKey);
++      controllers.current.get(fileKey)?.abort();
++      removeOnServer(dropKey, fileKey);
++      dropFileFromList(dropKey, fileKey);
++    },
++    [dropFileFromList, removeOnServer, removeUploaded],
++  );
++
++  /** Removes a drop from the list. One still uploading is cancelled, files and all. */
++  const removeDrop = React.useCallback(
++    (dropKey: string) => {
++      const drop = dropsRef.current.find((d) => d.id === dropKey);
++      removed.current.add(dropKey);
++      if (drop?.status === "uploading") {
++        for (const file of drop.files) {
++          controllers.current.get(file.id)?.abort();
++          removeOnServer(dropKey, file.id);
++        }
++      }
++      setDrops((prev) => prev.filter((d) => d.id !== dropKey));
++    },
++    [removeOnServer],
++  );
++
++  const clearAll = React.useCallback(() => {
++    dropsRef.current.forEach((drop) => removeDrop(drop.id));
++  }, [removeDrop]);
++
++  // Cancel uploads still running if the user leaves the page.
++  React.useEffect(() => {
++    const map = controllers.current;
++    return () => map.forEach((controller) => controller.abort());
++  }, []);
++
++  return { drops, addDrop, removeFile, removeDrop, clearAll };
++}
+diff --git a/apps/web/lib/axios.ts b/apps/web/lib/axios.ts
+index a101b47..daae137 100644
+--- a/apps/web/lib/axios.ts
++++ b/apps/web/lib/axios.ts
+@@ -1,5 +1,7 @@
+ import axioS from "axios";
+ 
+-const axios = axioS.create({ baseURL: process.env.NEXT_PUBLIC_API_URL });
++// withCredentials: the share page's unlock cookie must reach the API, which runs
++// on another origin locally (same origin in production).
++const axios = axioS.create({ baseURL: process.env.NEXT_PUBLIC_API_URL, withCredentials: true });
+ 
+ export default axios;
+diff --git a/apps/web/lib/consts.ts b/apps/web/lib/consts.ts
+index 0f7875c..720aa65 100644
+--- a/apps/web/lib/consts.ts
++++ b/apps/web/lib/consts.ts
+@@ -5,3 +5,16 @@ export const MAX_SHARE_RECIPIENTS = 5;
+ // Optional share-link expiry (keep in sync with apps/api/src/lib/consts.ts).
+ export const MIN_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes from now
+ export const MAX_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days from now
++
++// One link holds several files or a folder (keep in sync with apps/api/src/lib/consts.ts).
++export const MAX_FILES_PER_DROP = 20;
++export const MAX_DROP_SIZE = 1024 * 1024 * 100; // 100MB, all files together
++
++// Optional link password (keep in sync with apps/api/src/lib/consts.ts).
++export const PASSWORD_MIN_LENGTH = 4;
++export const PASSWORD_MAX_LENGTH = 128;
++
++// Files uploaded at the same time, across every drop on the page.
++export const UPLOAD_CONCURRENCY = 3;
++// Upload URLs are valid for 60 s; past this age, ask the API for a fresh one.
++export const UPLOAD_URL_FRESH_MS = 45 * 1000;
+diff --git a/apps/web/lib/drop-files.ts b/apps/web/lib/drop-files.ts
+new file mode 100644
+index 0000000..dd7931b
+--- /dev/null
++++ b/apps/web/lib/drop-files.ts
+@@ -0,0 +1,182 @@
++/** A file to upload and where it sits in the drop: "photos/2024/a.jpg", or just its name. */
++export type PickedFile = { file: File; path: string };
++
++// Files a folder carries without anyone choosing them.
++const SYSTEM_FILES = new Set(["Thumbs.db", "desktop.ini"]);
++
++/** Hidden and system files inside a dropped folder (.DS_Store, .git, Thumbs.db…) are left out. */
++export function isSkippedInFolder(name: string): boolean {
++  return name.startsWith(".") || SYSTEM_FILES.has(name);
++}
++
++/**
++ * What was dropped, read synchronously: the browser empties the DataTransfer as
++ * soon as the drop event returns, so this must run before any await.
++ */
++export function readDataTransfer(dataTransfer: DataTransfer): {
++  entries: FileSystemEntry[];
++  files: File[];
++} {
++  const entries = Array.from(dataTransfer.items)
++    .filter((item) => item.kind === "file")
++    .map((item) => item.webkitGetAsEntry?.())
++    .filter((entry): entry is FileSystemEntry => !!entry);
++  return { entries, files: Array.from(dataTransfer.files) };
++}
++
++const isFile = (entry: FileSystemEntry): entry is FileSystemFileEntry => entry.isFile;
++const isDirectory = (entry: FileSystemEntry): entry is FileSystemDirectoryEntry => entry.isDirectory;
++
++const fileOf = (entry: FileSystemFileEntry) => new Promise<File>((resolve, reject) => entry.file(resolve, reject));
++
++/** A folder's children. readEntries returns them in batches (100 in Chrome) until an empty one. */
++async function childrenOf(directory: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> {
++  const reader = directory.createReader();
++  const children: FileSystemEntry[] = [];
++  while (true) {
++    const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
++    if (batch.length === 0) return children;
++    children.push(...batch);
++  }
++}
++
++/**
++ * Every file under the dropped entries, folders walked depth-first, with paths
++ * relative to what was dropped. Stops once it has more than `limit` files, so a
++ * huge folder isn't read just to be refused: `tooMany` then says so.
++ */
++export async function walkEntries(
++  entries: FileSystemEntry[],
++  limit: number,
++): Promise<{ files: PickedFile[]; tooMany: boolean }> {
++  const files: PickedFile[] = [];
++
++  const visit = async (entry: FileSystemEntry, inFolder: boolean): Promise<boolean> => {
++    if (inFolder && isSkippedInFolder(entry.name)) return true;
++    if (isFile(entry)) {
++      // fullPath is "/photos/a.jpg" for something inside a dropped folder.
++      files.push({ file: await fileOf(entry), path: entry.fullPath.replace(/^\/+/, "") || entry.name });
++      return files.length <= limit;
++    }
++    if (isDirectory(entry)) {
++      for (const child of await childrenOf(entry)) {
++        if (!(await visit(child, true))) return false;
++      }
++    }
++    return true;
++  };
++
++  for (const entry of entries) {
++    if (!(await visit(entry, false))) return { files: files.slice(0, limit), tooMany: true };
++  }
++  return { files, tooMany: false };
++}
++
++/** Files from an <input type="file">; with `webkitdirectory`, each knows its path in the folder. */
++export function filesFromInput(list: FileList): PickedFile[] {
++  return Array.from(list)
++    .map((file) => ({ file, path: file.webkitRelativePath || file.name }))
++    .filter(({ path }) => {
++      const segments = path.split("/");
++      return segments.length === 1 || !segments.some(isSkippedInFolder);
++    });
++}
++
++/**
++ * Paths unique within the drop, ignoring case like macOS and Windows do when the
++ * zip is extracted: a second "image.png" (pasted screenshots) becomes "image (2).png",
++ * and a loose file named like a dropped folder ("notes" next to "notes/") becomes
++ * "notes (2)", since one name can't be both.
++ */
++export function withUniquePaths(files: PickedFile[]): PickedFile[] {
++  const taken = new Set(
++    files.flatMap(({ path }) => {
++      const segments = path.toLowerCase().split("/").slice(0, -1);
++      return segments.map((_, index) => segments.slice(0, index + 1).join("/"));
++    }),
++  );
++  return files.map((picked) => {
++    let path = picked.path;
++    const slash = path.lastIndexOf("/");
++    const dot = path.lastIndexOf(".");
++    const stemEnd = dot > slash + 1 ? dot : path.length;
++    for (let n = 2; taken.has(path.toLowerCase()); n++) {
++      path = `${picked.path.slice(0, stemEnd)} (${n})${picked.path.slice(stemEnd)}`;
++    }
++    taken.add(path.toLowerCase());
++    return path === picked.path ? picked : { ...picked, path };
++  });
++}
++
++/** "photos/2024/a.jpg" → "a.jpg". */
++export function baseName(path: string): string {
++  return path.slice(path.lastIndexOf("/") + 1);
++}
++
++/** "photos/2024/a.jpg" → "photos/2024", or "" for a loose file. */
++export function folderOf(path: string): string {
++  const slash = path.lastIndexOf("/");
++  return slash === -1 ? "" : path.slice(0, slash);
++}
++
++/** The folder every path starts with, when the drop is one folder ("photos"); else null. */
++export function sharedFolder(paths: string[]): string | null {
++  const [first] = paths;
++  if (!first || !first.includes("/")) return null;
++  const folder = first.slice(0, first.indexOf("/"));
++  return paths.every((path) => path.startsWith(`${folder}/`)) ? folder : null;
++}
++
++/** How a drop is named: the file's name, the folder's name, or "3 files" (like the API's emails). */
++export function dropTitle(paths: string[]): string {
++  if (paths.length === 1) return baseName(paths[0]!);
++  return sharedFolder(paths) ?? `${paths.length} files`;
++}
++
++export type TreeRow<T> =
++  | { kind: "folder"; key: string; name: string; depth: number }
++  | { kind: "file"; key: string; name: string; depth: number; item: T };
++
++type Folder<T> = { folders: Map<string, Folder<T>>; files: { name: string; item: T }[] };
++
++const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare;
++
++/**
++ * Files as an indented tree: each folder's subfolders first, then its files, both
++ * in natural order ("2.jpg" before "10.jpg"). A folder that holds everything is
++ * left out; the drop is already named after it.
++ */
++export function treeRows<T extends { path: string }>(items: T[]): TreeRow<T>[] {
++  const root: Folder<T> = { folders: new Map(), files: [] };
++  const common = sharedFolder(items.map((item) => item.path));
++
++  for (const item of items) {
++    const path = common ? item.path.slice(common.length + 1) : item.path;
++    const segments = path.split("/");
++    const name = segments.pop()!;
++    let folder = root;
++    for (const segment of segments) {
++      let child = folder.folders.get(segment);
++      if (!child) {
++        child = { folders: new Map(), files: [] };
++        folder.folders.set(segment, child);
++      }
++      folder = child;
++    }
++    folder.files.push({ name, item });
++  }
++
++  const rows: TreeRow<T>[] = [];
++  const flatten = (folder: Folder<T>, depth: number, prefix: string) => {
++    for (const name of [...folder.folders.keys()].sort(byName)) {
++      const key = `${prefix}${name}/`;
++      rows.push({ kind: "folder", key, name, depth });
++      flatten(folder.folders.get(name)!, depth + 1, key);
++    }
++    for (const { name, item } of [...folder.files].sort((a, b) => byName(a.name, b.name))) {
++      rows.push({ kind: "file", key: item.path, name, depth, item });
++    }
++  };
++  flatten(root, 0, "");
++  return rows;
++}
+diff --git a/apps/web/lib/limit.ts b/apps/web/lib/limit.ts
+new file mode 100644
+index 0000000..4d00f4b
+--- /dev/null
++++ b/apps/web/lib/limit.ts
+@@ -0,0 +1,29 @@
++/**
++ * Runs at most `concurrency` tasks at once; the others wait their turn in order.
++ * Returns a function that queues a task and resolves with its result.
++ */
++export function createLimiter(concurrency: number) {
++  let active = 0;
++  const queue: (() => void)[] = [];
++
++  const next = () => {
++    if (active >= concurrency) return;
++    const start = queue.shift();
++    if (!start) return;
++    active += 1;
++    start();
++  };
++
++  return <T>(task: () => Promise<T>) =>
++    new Promise<T>((resolve, reject) => {
++      queue.push(() => {
++        task()
++          .then(resolve, reject)
++          .finally(() => {
++            active -= 1;
++            next();
++          });
++      });
++      next();
++    });
++}
+diff --git a/apps/web/lib/query-keys.ts b/apps/web/lib/query-keys.ts
+index 31f13b4..d5d83cb 100644
+--- a/apps/web/lib/query-keys.ts
++++ b/apps/web/lib/query-keys.ts
+@@ -1,6 +1,6 @@
+ export const qk = {
+-  files: {
+-    all: ["files"],
+-    byId: (id: string) => ["files", id],
++  drops: {
++    all: ["drops"],
++    byId: (id: string) => ["drops", id],
+   },
+ };
+diff --git a/apps/web/schemas/drops.ts b/apps/web/schemas/drops.ts
+new file mode 100644
+index 0000000..497d896
+--- /dev/null
++++ b/apps/web/schemas/drops.ts
+@@ -0,0 +1,11 @@
++import { MAX_SHARE_RECIPIENTS } from "@/lib/consts";
++import { z } from "zod";
++
++export const shareSchema = z.object({
++  emails: z
++    .array(z.email())
++    .min(1, "Enter at least one email address")
++    .max(MAX_SHARE_RECIPIENTS, `Up to ${MAX_SHARE_RECIPIENTS} addresses at a time`),
++});
++
++export type ShareSchema = z.infer<typeof shareSchema>;
+diff --git a/apps/web/schemas/files.ts b/apps/web/schemas/files.ts
+deleted file mode 100644
+index 3ca3dd7..0000000
+--- a/apps/web/schemas/files.ts
++++ /dev/null
+@@ -1,52 +0,0 @@
+-import { MAX_FILE_SIZE, MAX_SHARE_RECIPIENTS } from "@/lib/consts";
+-import { z } from "zod";
+-
+-const VALID_MIME_TYPE = [
+-  "image/jpeg",
+-  "image/png",
+-  "image/gif",
+-  "image/webp",
+-  "image/svg+xml",
+-  "image/bmp",
+-  "image/tiff",
+-  //-------
+-  "application/pdf",
+-  "text/plain",
+-  "application/msword",
+-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+-  "application/vnd.ms-excel",
+-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+-  "application/vnd.ms-powerpoint",
+-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+-];
+-
+-export const generateSchema = z.object({
+-  filename: z.string().min(1).max(255),
+-  contentType: z
+-    .string()
+-    .min(1)
+-    .max(255)
+-    .refine((value) => VALID_MIME_TYPE.includes(value), {
+-      message: "Content type must be a valid MIME type",
+-    }),
+-  size: z.number().min(1).max(MAX_FILE_SIZE),
+-
+-  expiresAt: z.date().optional(),
+-});
+-
+-export type GenerateSchema = z.infer<typeof generateSchema>;
+-
+-export const confirmSchema = z.object({
+-  id: z.string().min(1).max(255),
+-});
+-
+-export type ConfirmSchema = z.infer<typeof confirmSchema>;
+-
+-export const shareSchema = z.object({
+-  emails: z
+-    .array(z.email())
+-    .min(1, "Enter at least one email address")
+-    .max(MAX_SHARE_RECIPIENTS, `Up to ${MAX_SHARE_RECIPIENTS} addresses at a time`),
+-});
+-
+-export type ShareSchema = z.infer<typeof shareSchema>;
+diff --git a/apps/web/services/drops.ts b/apps/web/services/drops.ts
+new file mode 100644
+index 0000000..a667dac
+--- /dev/null
++++ b/apps/web/services/drops.ts
+@@ -0,0 +1,84 @@
++import type { ShareSchema } from "@/schemas/drops";
++import axios from "@/lib/axios";
++import axiosBase from "axios";
++import type {
++  ConfirmResponse,
++  CreateDropRequest,
++  CreateDropResponse,
++  DropInfo,
++  PreviewResponse,
++  ShareResponse,
++  UnlockResponse,
++  UploadUrlResponse,
++} from "@/types/drop";
++
++const API_URL = process.env.NEXT_PUBLIC_API_URL;
++
++const uploadHeaders = (uploadToken: string) => ({ "x-upload-token": uploadToken });
++
++const dropsService = {
++  create: async (data: CreateDropRequest) => {
++    return (await axios.post("/drops", data)).data as CreateDropResponse;
++  },
++  uploadUrl: async (dropId: string, fileId: string, uploadToken: string) => {
++    return (
++      await axios.post(`/drops/${dropId}/files/${fileId}/upload-url`, null, {
++        headers: uploadHeaders(uploadToken),
++      })
++    ).data as UploadUrlResponse;
++  },
++  uploadToS3: async (
++    uploadUrl: string,
++    file: File,
++    contentType: string,
++    onProgress?: (progress: number) => void,
++    signal?: AbortSignal,
++  ) => {
++    // Plain axios: this is a presigned S3 URL, not our API.
++    await axiosBase.put(uploadUrl, file, {
++      headers: {
++        "Content-Type": contentType,
++      },
++      onUploadProgress: (event) => {
++        if (onProgress && event.total) {
++          onProgress((event.loaded / event.total) * 100);
++        }
++      },
++      signal,
++    });
++  },
++  confirm: async (dropId: string, fileId: string, uploadToken: string) => {
++    return (
++      await axios.post(`/drops/${dropId}/files/${fileId}/confirm`, null, {
++        headers: uploadHeaders(uploadToken),
++      })
++    ).data as ConfirmResponse;
++  },
++  removeFile: async (dropId: string, fileId: string, uploadToken: string) => {
++    await axios.delete(`/drops/${dropId}/files/${fileId}`, { headers: uploadHeaders(uploadToken) });
++  },
++
++  getDrop: async (id: string) => {
++    return (await axios.get(`/drops/${id}`)).data as DropInfo;
++  },
++  unlock: async (id: string, password: string) => {
++    return (await axios.post(`/drops/${id}/unlock`, { password })).data as UnlockResponse;
++  },
++  getPreview: async (dropId: string, fileId: string) => {
++    return (await axios.get(`/drops/${dropId}/files/${fileId}/preview`)).data as PreviewResponse;
++  },
++  // Plain axios: this is a presigned S3 URL, not our API.
++  getText: async (url: string) => {
++    return (await axiosBase.get(url, { responseType: "text" })).data as string;
++  },
++  share: async (id: string, data: ShareSchema) => {
++    return (await axios.post(`/drops/${id}/share`, data)).data as ShareResponse;
++  },
++
++  // Plain links: the API redirects (one file) or streams a zip (all files), and the
++  // browser sends the unlock cookie with them like with any request to the API.
++  fileDownloadUrl: (dropId: string, fileId: string) => `${API_URL}/drops/${dropId}/files/${fileId}/download`,
++  zipDownloadUrl: (dropId: string) => `${API_URL}/drops/${dropId}/download`,
++};
++
++export default dropsService;
+diff --git a/apps/web/services/files.ts b/apps/web/services/files.ts
+deleted file mode 100644
+index 3d18f32..0000000
+--- a/apps/web/services/files.ts
++++ /dev/null
+@@ -1,58 +0,0 @@
+-import type { GenerateSchema, ShareSchema } from "@/schemas/files";
+-import axios from "@/lib/axios";
+-import axiosBase from "axios";
+-import {
+-  GenerateResponse,
+-  ConfirmResponse,
+-  FileInfo,
+-  PreviewResponse,
+-  ShareResponse,
+-} from "@/types/file";
+-
+-const filesService = {
+-  generate: async (data: GenerateSchema) => {
+-    return (await axios.post("/files/generate", data)).data as GenerateResponse;
+-  },
+-  uploadToS3: async (
+-    uploadUrl: string,
+-    file: File,
+-    contentType: string,
+-    onProgress?: (progress: number) => void,
+-    signal?: AbortSignal,
+-  ) => {
+-    await axiosBase.put(uploadUrl, file, {
+-      headers: {
+-        "Content-Type": contentType,
+-      },
+-      onUploadProgress: (event) => {
+-        if (onProgress && event.total) {
+-          onProgress((event.loaded / event.total) * 100);
+-        }
+-      },
+-      signal,
+-    });
+-  },
+-  confirm: async (id: string) => {
+-    return (await axios.post(`/files/${id}/confirm`)).data as ConfirmResponse;
+-  },
+-
+-  getFileInfo: async (id: string) => {
+-    return (await axios.get(`/files/${id}`)).data as FileInfo;
+-  },
+-  getPreview: async (id: string) => {
+-    return (await axios.get(`/files/${id}/preview`)).data as PreviewResponse;
+-  },
+-  // Plain axios: this is a presigned S3 URL, not our API.
+-  getText: async (url: string) => {
+-    return (await axiosBase.get(url, { responseType: "text" })).data as string;
+-  },
+-  share: async (id: string, data: ShareSchema) => {
+-    return (await axios.post(`/files/${id}/share`, data)).data as ShareResponse;
+-  },
+-  download: async (id: string) => {
+-    return (await axios.get(`/files/${id}/download`, { responseType: "blob" }))
+-      .data as Blob;
+-  },
+-};
+-
+-export default filesService;
+diff --git a/apps/web/types/drop.ts b/apps/web/types/drop.ts
+new file mode 100644
+index 0000000..355dee8
+--- /dev/null
++++ b/apps/web/types/drop.ts
+@@ -0,0 +1,70 @@
++export type FileStatus = "PENDING" | "EXPIRED" | "SCANNING" | "REMOVED" | "DELETED" | "UPLOADED";
++
++//------------------------------------------------
++/** Options chosen before dropping; they apply to the whole link. */
++export type DropOptions = {
++  /** When the share link stops working; null for a link that never expires. */
++  expiresAt: Date | null;
++  /** Null while the Password switch is off; "" when it's on but nothing is typed yet. */
++  password: string | null;
++  burnAfterDownload: boolean;
++};
++
++export type CreateDropRequest = {
++  files: { path: string; contentType: string; size: number }[];
++  expiresAt?: Date;
++  password?: string;
++  burnAfterDownload?: boolean;
++};
++
++export type ShareArgs = { dropId: string; emails: string[] };
++
++//------------------------------------------------
++
++export type CreateDropResponse = {
++  dropId: string;
++  /** Sent back on the upload routes; only this browser can add files to the drop. */
++  uploadToken: string;
++  /** In the order they were sent. */
++  files: { id: string; path: string; uploadUrl: string }[];
++};
++export type UploadUrlResponse = { uploadUrl: string };
++export type ConfirmResponse = { fileId: string; status: FileStatus };
++
++export type PreviewResponse = { kind: "image" | "pdf" | "text"; url: string };
++
++/** How many emails went out, and the addresses SES refused. */
++export type ShareResponse = { sent: number; failed: string[] };
++
++export type UnlockResponse = { unlockedUntil: string };
++
++export type DropFile = {
++  id: string;
++  /** "photos/2024/a.jpg" inside a folder, or just the name. */
++  path: string;
++  filename: string;
++  contentType: string;
++  size: number;
++  /** SCANNING while the file check runs; REMOVED when it failed. */
++  status: Extract<FileStatus, "SCANNING" | "UPLOADED" | "REMOVED">;
++};
++
++type DropSummary = {
++  id: string;
++  protected: boolean;
++  burnAfterDownload: boolean;
++  expiresAt: string | null;
++};
++
++/** A password-protected link before the password: no names, sizes or count. */
++export type LockedDrop = DropSummary & { locked: true };
++
++export type OpenDrop = DropSummary & {
++  locked: false;
++  /** When this browser's unlock ends; null for a link without a password. */
++  unlockedUntil: string | null;
++  createdAt: string;
++  files: DropFile[];
++};
++
++export type DropInfo = LockedDrop | OpenDrop;
+diff --git a/apps/web/types/file.ts b/apps/web/types/file.ts
+deleted file mode 100644
+index 724d213..0000000
+--- a/apps/web/types/file.ts
++++ /dev/null
+@@ -1,33 +0,0 @@
+-//------------------------------------------------
+-export type UploadArgs = {
+-  file: File;
+-  /** When the share link stops working; omit for a link that never expires. */
+-  expiresAt?: Date;
+-  onProgress?: (progress: number) => void;
+-  signal?: AbortSignal;
+-};
+-
+-export type ShareArgs = { fileId: string; emails: string[] };
+-
+-//------------------------------------------------
+-
+-export type GenerateResponse = { fileId: string; uploadUrl: string };
+-export type ConfirmResponse = { fileId: string };
+-
+-export type PreviewResponse = { kind: "image" | "pdf" | "text"; url: string };
+-
+-/** How many emails went out, and the addresses SES refused. */
+-export type ShareResponse = { sent: number; failed: string[] };
+-
+-export type FileStatus =
+-  "PENDING" | "EXPIRED" | "SCANNING" | "REMOVED" | "DELETED" | "UPLOADED";
+-
+-export type FileInfo = {
+-  id: string;
+-  filename: string;
+-  contentType: string;
+-  size: number;
+-  status: FileStatus;
+-  createdAt: string;
+-  expiresAt: string | null;
+-};

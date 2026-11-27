@@ -1,0 +1,16 @@
+{
+  "id": "15-clean-drops-api",
+  "kind": "clean",
+  "title": "feat(api): add multi-file drops, password unlock tokens, burn-after-download and zip downloads",
+  "body": "",
+  "base": {
+    "sha": "12e56c839bfe0e5408c9673742db30a208c568ef"
+  },
+  "source": {
+    "commit": "144a36c447c6d21d5e96ffc235b2dedb64677dc9",
+    "parent": "12e56c839bfe0e5408c9673742db30a208c568ef",
+    "message": "feat(api): add multi-file drops, password unlock tokens, burn-after-download and zip downloads"
+  },
+  "note": "The multi-file drops API (1,840 added lines). Revo once flagged the zip error Content-Type here, a known false alarm.",
+  "expected": []
+}

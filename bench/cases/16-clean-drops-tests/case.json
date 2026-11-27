@@ -1,0 +1,16 @@
+{
+  "id": "16-clean-drops-tests",
+  "kind": "clean",
+  "title": "test(api): cover unlock tokens, passwords, paths, zip and burn races",
+  "body": "",
+  "base": {
+    "sha": "144a36c447c6d21d5e96ffc235b2dedb64677dc9"
+  },
+  "source": {
+    "commit": "5a622255f32346cf044b3d73d7eb0d759e331cb6",
+    "parent": "144a36c447c6d21d5e96ffc235b2dedb64677dc9",
+    "message": "test(api): cover unlock tokens, passwords, paths, zip and burn races"
+  },
+  "note": "Unit and e2e tests for the drops API.",
+  "expected": []
+}

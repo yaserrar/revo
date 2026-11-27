@@ -1,0 +1,16 @@
+{
+  "id": "14-clean-drops-schema",
+  "kind": "clean",
+  "title": "feat(db): add drops that group files, with password, burn and consumed-by fields",
+  "body": "",
+  "base": {
+    "sha": "7e6b8782916c4932d02f61260e83ea76476cf07f"
+  },
+  "source": {
+    "commit": "12e56c839bfe0e5408c9673742db30a208c568ef",
+    "parent": "7e6b8782916c4932d02f61260e83ea76476cf07f",
+    "message": "feat(db): add drops that group files, with password, burn and consumed-by fields"
+  },
+  "note": "Prisma schema and migrations for drops (first commit of the multi-file feature, so the API still uses the old file model until 144a36c).",
+  "expected": []
+}

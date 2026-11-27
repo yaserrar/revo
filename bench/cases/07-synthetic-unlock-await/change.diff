@@ -1,0 +1,14 @@
+diff --git a/apps/api/src/drops/drops.service.ts b/apps/api/src/drops/drops.service.ts
+index e9600a1..03dc638 100644
+--- a/apps/api/src/drops/drops.service.ts
++++ b/apps/api/src/drops/drops.service.ts
+@@ -179,7 +179,8 @@ export class DropsService {
+     }
+ 
+     await this.takeUnlockAttempt(drop.id);
+-    if (!(await verifyPassword(password, drop.passwordHash))) {
++    const passwordMatches = verifyPassword(password, drop.passwordHash);
++    if (!passwordMatches) {
+       const { unlockFailures } = await this.prisma.drop.findUniqueOrThrow({
+         where: { id: drop.id },
+         select: { unlockFailures: true },

@@ -1,0 +1,23 @@
+{
+  "id": "06-synthetic-upload-guard",
+  "kind": "synthetic",
+  "title": "Let upload retries from older tabs finish",
+  "body": "Tabs opened before the upload token header shipped retry without it, and the whole drop fails. Let those requests through.",
+  "base": {
+    "sha": "892ddf8f6eb131ef8896c8ceb2167872d6fbceb5"
+  },
+  "source": {
+    "note": "Synthetic: written for this benchmark against 892ddf8."
+  },
+  "note": "UploadTokenGuard returns true when the token header is missing.",
+  "expected": [
+    {
+      "id": "upload-auth-bypass",
+      "file": "apps/api/src/drops/upload-token.guard.ts",
+      "lineStart": 25,
+      "lineEnd": 27,
+      "severity": "blocker",
+      "description": "A request with no x-upload-token header now passes the guard: anyone who has a share link (the drop id) can add, replace or remove that drop's files."
+    }
+  ]
+}

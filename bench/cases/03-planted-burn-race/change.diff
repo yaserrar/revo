@@ -1,0 +1,30 @@
+diff --git a/apps/api/src/drops/drops.service.ts b/apps/api/src/drops/drops.service.ts
+index 25369e9..eff92b8 100644
+--- a/apps/api/src/drops/drops.service.ts
++++ b/apps/api/src/drops/drops.service.ts
+@@ -459,16 +459,18 @@ export class DropsService {
+     );
+   }
+ 
+-  /**
+-   * Marks a burn-after-download drop as used, and how. One UPDATE guarded by
+-   * `consumedAt IS NULL`: of two downloads at the same moment, exactly one wins.
+-   */
++  /** Marks a burn-after-download drop as used, and how. */
+   private async consume(dropId: string, by: DownloadKind) {
+-    const { count } = await this.prisma.drop.updateMany({
+-      where: { id: dropId, burnAfterDownload: true, consumedAt: null },
++    const drop = await this.prisma.drop.findUnique({
++      where: { id: dropId },
++      select: { burnAfterDownload: true, consumedAt: true },
++    });
++    if (!drop?.burnAfterDownload || drop.consumedAt) throw gone('consumed');
++
++    await this.prisma.drop.update({
++      where: { id: dropId },
+       data: { consumedAt: new Date(), consumedBy: by },
+     });
+-    if (count === 0) throw gone('consumed');
+   }
+ 
+   private async release(dropId: string) {

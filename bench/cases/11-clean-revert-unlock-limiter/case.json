@@ -1,0 +1,19 @@
+{
+  "id": "11-clean-revert-unlock-limiter",
+  "kind": "clean",
+  "title": "Revert \"Rename unlock expiry field and simplify upload limiter\"",
+  "body": "This reverts commit 9287ef7123a7efc08a6408d7d1b95d1c59bcabf9.",
+  "base": {
+    "sha": "892ddf8f6eb131ef8896c8ceb2167872d6fbceb5",
+    "patch": "base.diff"
+  },
+  "source": {
+    "commit": "50ed91318d78bc3ef572bdb9fdbe18b00642eed8",
+    "parent": "9287ef7123a7efc08a6408d7d1b95d1c59bcabf9",
+    "message": "Revert \"Rename unlock expiry field and simplify upload limiter\"",
+    "note": "Reverts 9287ef7. Reviewed on 892ddf8 + 9287ef7 (base.diff), i.e. its real parent without the other planted bugs."
+  },
+  "note": "Restores the original field name and limiter: the change fixes two bugs and adds none.",
+  "confirm": "Listed with the planted bugs, but a revert of buggy code is a clean change: expected no findings. Confirm.",
+  "expected": []
+}

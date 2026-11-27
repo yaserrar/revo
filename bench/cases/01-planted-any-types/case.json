@@ -1,0 +1,27 @@
+{
+  "id": "01-planted-any-types",
+  "kind": "planted",
+  "title": "Small cleanup in the API format helper",
+  "body": "",
+  "base": {
+    "sha": "892ddf8f6eb131ef8896c8ceb2167872d6fbceb5"
+  },
+  "source": {
+    "commit": "53e6cdc30af8790c92cdd9bb2589068525998fe1",
+    "parent": "892ddf8f6eb131ef8896c8ceb2167872d6fbceb5",
+    "message": "Testing Revo",
+    "note": "Planted by the user on dev to test Revo (original title \"Testing Revo\"). Reviewed here on 892ddf8, its real parent."
+  },
+  "note": "formatBytes is retyped from (bytes: number): string to (bytes: any): any.",
+  "expected": [
+    {
+      "id": "any-types",
+      "file": "apps/api/src/lib/format.ts",
+      "lineStart": 4,
+      "lineEnd": 4,
+      "severity": "minor",
+      "description": "formatBytes(bytes: any): any drops the number/string types: callers lose type checking and a non-number (a string size, undefined) now flows through silently and prints \"NaN undefined\".",
+      "confirm": "Type-safety regression with no runtime bug today. Should Revo be expected to report it (it is a minor at most)? If not, move this case to the clean set."
+    }
+  ]
+}

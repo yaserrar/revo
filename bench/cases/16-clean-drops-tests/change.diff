@@ -1,0 +1,1097 @@
+diff --git a/apps/api/src/drops/drop-zip.spec.ts b/apps/api/src/drops/drop-zip.spec.ts
+new file mode 100644
+index 0000000..917a1df
+--- /dev/null
++++ b/apps/api/src/drops/drop-zip.spec.ts
+@@ -0,0 +1,146 @@
++import { PassThrough, Readable } from 'node:stream';
++import { readZip } from '../../test/support/read-zip.js';
++import { isCompressedType, writeZip, type ZipEntry } from './drop-zip.js';
++
++const date = new Date('2026-11-21T12:00:00Z');
++
++function collect(stream: PassThrough): Promise<Buffer> {
++  const chunks: Buffer[] = [];
++  stream.on('data', (chunk: Buffer) => chunks.push(chunk));
++  return new Promise((resolve) =>
++    stream.on('end', () => resolve(Buffer.concat(chunks))),
++  );
++}
++
++describe('writeZip', () => {
++  it('zips every entry under its path, opening bodies one at a time', async () => {
++    const bodies: Record<string, Buffer> = {
++      'uploads/1': Buffer.from('hello '.repeat(1000)),
++      'uploads/2': Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]),
++      'uploads/3': Buffer.from('{"ok":true}'),
++    };
++    const entries: ZipEntry[] = [
++      {
++        key: 'uploads/1',
++        path: 'notes/hello.txt',
++        contentType: 'text/plain',
++        date,
++      },
++      {
++        key: 'uploads/2',
++        path: 'photos/a.jpg',
++        contentType: 'image/jpeg',
++        date,
++      },
++      {
++        key: 'uploads/3',
++        path: 'data.json',
++        contentType: 'application/json',
++        date,
++      },
++    ];
++
++    let open = 0;
++    let maxOpen = 0;
++    const openBody = async (key: string) => {
++      open += 1;
++      maxOpen = Math.max(maxOpen, open);
++      const body = Readable.from([bodies[key]!]);
++      body.on('close', () => (open -= 1));
++      return body;
++    };
++
++    const out = new PassThrough();
++    const zip = collect(out);
++    await writeZip(entries, openBody, out, new AbortController().signal);
++
++    const files = readZip(await zip);
++    expect(files.map((f) => f.name)).toEqual([
++      'notes/hello.txt',
++      'photos/a.jpg',
++      'data.json',
++    ]);
++    for (const [index, file] of files.entries()) {
++      expect(file.data.equals(bodies[entries[index]!.key]!)).toBe(true);
++    }
++    // JPEGs are stored as they are; text is deflated.
++    expect(files[1]!.stored).toBe(true);
++    expect(files[0]!.stored).toBe(false);
++    expect(maxOpen).toBe(1);
++  });
++
++  it('fails before writing anything when the first body cannot be opened', async () => {
++    const out = new PassThrough();
++    let written = 0;
++    out.on('data', (chunk: Buffer) => (written += chunk.length));
++
++    await expect(
++      writeZip(
++        [{ key: 'uploads/x', path: 'x.txt', contentType: 'text/plain', date }],
++        () => Promise.reject(new Error('NoSuchKey')),
++        out,
++        new AbortController().signal,
++      ),
++    ).rejects.toThrow('NoSuchKey');
++    expect(written).toBe(0);
++  });
++
++  it('rejects when a body breaks mid-stream', async () => {
++    const broken = new Readable({
++      read() {
++        this.destroy(new Error('connection reset'));
++      },
++    });
++    const out = new PassThrough();
++    out.resume();
++    await expect(
++      writeZip(
++        [{ key: 'uploads/x', path: 'x.txt', contentType: 'text/plain', date }],
++        async () => broken,
++        out,
++        new AbortController().signal,
++      ),
++    ).rejects.toThrow('connection reset');
++  });
++
++  it('stops and closes the body when the client goes away', async () => {
++    // A body that never ends, like a slow S3 read.
++    const body = new Readable({ read() {} });
++    body.push(Buffer.alloc(1024));
++    const abort = new AbortController();
++    const out = new PassThrough();
++    out.resume();
++
++    const writing = writeZip(
++      [
++        {
++          key: 'uploads/x',
++          path: 'x.bin',
++          contentType: 'application/octet-stream',
++          date,
++        },
++      ],
++      async () => body,
++      out,
++      abort.signal,
++    );
++    setTimeout(() => abort.abort(new Error('Client went away')), 20);
++
++    await expect(writing).rejects.toThrow('Client went away');
++    expect(body.destroyed).toBe(true);
++  });
++});
++
++describe('isCompressedType', () => {
++  it('stores formats that are already compressed', () => {
++    expect(isCompressedType('image/png')).toBe(true);
++    expect(isCompressedType('video/mp4')).toBe(true);
++    expect(
++      isCompressedType(
++        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
++      ),
++    ).toBe(true);
++    expect(isCompressedType('text/plain')).toBe(false);
++    expect(isCompressedType('image/svg+xml')).toBe(false);
++  });
++});
+diff --git a/apps/api/src/lib/cookies.spec.ts b/apps/api/src/lib/cookies.spec.ts
+new file mode 100644
+index 0000000..66f3891
+--- /dev/null
++++ b/apps/api/src/lib/cookies.spec.ts
+@@ -0,0 +1,23 @@
++import { readCookies } from './cookies.js';
++
++describe('readCookies', () => {
++  it('returns every value of the named cookie', () => {
++    expect(
++      readCookies(
++        'a=1; dropwave_unlock=x.y; b=2; dropwave_unlock=z',
++        'dropwave_unlock',
++      ),
++    ).toEqual(['x.y', 'z']);
++  });
++
++  it('decodes values and ignores other or malformed cookies', () => {
++    expect(readCookies('t=a%2Bb; tt=no; bare; t=%E0%A4%A', 't')).toEqual([
++      'a+b',
++    ]);
++  });
++
++  it('handles a missing header', () => {
++    expect(readCookies(undefined, 't')).toEqual([]);
++    expect(readCookies('', 't')).toEqual([]);
++  });
++});
+diff --git a/apps/api/src/lib/drop-paths.spec.ts b/apps/api/src/lib/drop-paths.spec.ts
+new file mode 100644
+index 0000000..c7b8a8d
+--- /dev/null
++++ b/apps/api/src/lib/drop-paths.spec.ts
+@@ -0,0 +1,83 @@
++import {
++  dropTitle,
++  findPathConflict,
++  normalizeRelativePath,
++  zipFileName,
++} from './drop-paths.js';
++
++const dropId = '0a1b2c3d-0000-4000-8000-000000000000';
++
++describe('normalizeRelativePath', () => {
++  it('keeps simple names and folder paths', () => {
++    expect(normalizeRelativePath('report.pdf')).toBe('report.pdf');
++    expect(normalizeRelativePath('photos/2024/a b.jpg')).toBe(
++      'photos/2024/a b.jpg',
++    );
++  });
++
++  it('cleans separators and empty or "." segments', () => {
++    expect(normalizeRelativePath('/photos//./a.jpg')).toBe('photos/a.jpg');
++    expect(normalizeRelativePath('photos\\2024\\a.jpg')).toBe(
++      'photos/2024/a.jpg',
++    );
++  });
++
++  it('refuses paths that leave the folder or hide characters', () => {
++    expect(normalizeRelativePath('../etc/passwd')).toBeNull();
++    expect(normalizeRelativePath('photos/../../a.jpg')).toBeNull();
++    expect(normalizeRelativePath('a\u0000b.txt')).toBeNull();
++    expect(normalizeRelativePath('line\nbreak.txt')).toBeNull();
++  });
++
++  it('refuses empty, blank and overlong paths', () => {
++    expect(normalizeRelativePath('')).toBeNull();
++    expect(normalizeRelativePath('///')).toBeNull();
++    expect(normalizeRelativePath('photos/   /a.jpg')).toBeNull();
++    expect(normalizeRelativePath(`${'a'.repeat(256)}.txt`)).toBeNull();
++    expect(
++      normalizeRelativePath(Array(80).fill('folder').join('/')),
++    ).toBeNull();
++  });
++});
++
++describe('findPathConflict', () => {
++  it('finds paths that differ only by case', () => {
++    expect(findPathConflict(['a.txt', 'b/A.TXT', 'B/a.txt'])).toEqual({
++      path: 'B/a.txt',
++      kind: 'duplicate',
++    });
++    expect(findPathConflict(['a.txt', 'b/a.txt'])).toBeNull();
++  });
++
++  it('finds a file named like a folder, whichever comes first', () => {
++    expect(findPathConflict(['notes', 'notes/b.txt'])).toEqual({
++      path: 'notes',
++      kind: 'file-and-folder',
++    });
++    expect(findPathConflict(['a/Notes/b.txt', 'A/notes'])).toEqual({
++      path: 'A/notes',
++      kind: 'file-and-folder',
++    });
++    expect(findPathConflict(['notes.txt', 'notes/b.txt'])).toBeNull();
++  });
++});
++
++describe('dropTitle and zipFileName', () => {
++  it('uses the file name for one file', () => {
++    expect(dropTitle(['notes/report.final.pdf'])).toBe('report.final.pdf');
++    expect(zipFileName(['report.final.pdf'], dropId)).toBe('report.final.zip');
++    expect(zipFileName(['.env'], dropId)).toBe('.env.zip');
++  });
++
++  it('uses the folder name when everything is in one folder', () => {
++    const paths = ['photos/a.jpg', 'photos/2024/b.jpg'];
++    expect(dropTitle(paths)).toBe('photos');
++    expect(zipFileName(paths, dropId)).toBe('photos.zip');
++  });
++
++  it('falls back to a count and the link id for loose files', () => {
++    const paths = ['a.jpg', 'photos/b.jpg', 'c.txt'];
++    expect(dropTitle(paths)).toBe('3 files');
++    expect(zipFileName(paths, dropId)).toBe('dropwave-0a1b2c3d.zip');
++  });
++});
+diff --git a/apps/api/src/lib/link-tokens.spec.ts b/apps/api/src/lib/link-tokens.spec.ts
+new file mode 100644
+index 0000000..a49b10d
+--- /dev/null
++++ b/apps/api/src/lib/link-tokens.spec.ts
+@@ -0,0 +1,65 @@
++import { deriveTokenKey, signToken, verifyToken } from './link-tokens.js';
++
++const key = deriveTokenKey('test-secret');
++const dropId = '6f1c2d3e-0000-4000-8000-000000000001';
++const now = Date.UTC(2026, 10, 21, 12, 0, 0);
++const inFifteenMinutes = now / 1000 + 15 * 60;
++
++describe('link tokens', () => {
++  it('accepts a token for its purpose and drop until it expires', () => {
++    const token = signToken(key, 'unlock', dropId, inFifteenMinutes);
++    expect(verifyToken(key, 'unlock', dropId, token, now)).toBe(
++      inFifteenMinutes,
++    );
++    // One second before expiry it still works; at expiry it doesn't.
++    expect(
++      verifyToken(key, 'unlock', dropId, token, (inFifteenMinutes - 1) * 1000),
++    ).toBe(inFifteenMinutes);
++    expect(
++      verifyToken(key, 'unlock', dropId, token, inFifteenMinutes * 1000),
++    ).toBeNull();
++  });
++
++  it('is tied to one drop and one purpose', () => {
++    const token = signToken(key, 'unlock', dropId, inFifteenMinutes);
++    const otherDrop = '6f1c2d3e-0000-4000-8000-000000000002';
++    expect(verifyToken(key, 'unlock', otherDrop, token, now)).toBeNull();
++    expect(verifyToken(key, 'upload', dropId, token, now)).toBeNull();
++  });
++
++  it('refuses tokens signed with another key', () => {
++    const forged = signToken(
++      deriveTokenKey('other-secret'),
++      'unlock',
++      dropId,
++      inFifteenMinutes,
++    );
++    expect(verifyToken(key, 'unlock', dropId, forged, now)).toBeNull();
++  });
++
++  it('refuses a token whose expiry was pushed back', () => {
++    const token = signToken(key, 'unlock', dropId, inFifteenMinutes);
++    const [, mac] = token.split('.');
++    const extended = `${inFifteenMinutes + 3600}.${mac}`;
++    expect(verifyToken(key, 'unlock', dropId, extended, now)).toBeNull();
++  });
++
++  it('refuses malformed tokens', () => {
++    for (const token of [
++      '',
++      'abc',
++      '123',
++      '123.',
++      '.abc',
++      '1e9.abc',
++      '1.2.3',
++    ]) {
++      expect(verifyToken(key, 'unlock', dropId, token, now)).toBeNull();
++    }
++  });
++
++  it('derives a key that is not the secret itself', () => {
++    expect(key.toString('utf8')).not.toContain('test-secret');
++    expect(key).toHaveLength(32);
++  });
++});
+diff --git a/apps/api/src/lib/password.spec.ts b/apps/api/src/lib/password.spec.ts
+new file mode 100644
+index 0000000..81f6d09
+--- /dev/null
++++ b/apps/api/src/lib/password.spec.ts
+@@ -0,0 +1,36 @@
++import { hashPassword, verifyPassword } from './password.js';
++
++describe('password hashing', () => {
++  it('verifies the right password and refuses a wrong one', async () => {
++    const hash = await hashPassword('correct horse');
++    expect(await verifyPassword('correct horse', hash)).toBe(true);
++    expect(await verifyPassword('correct hors', hash)).toBe(false);
++    expect(await verifyPassword('', hash)).toBe(false);
++  });
++
++  it('stores a salted scrypt hash, never the password', async () => {
++    const [a, b] = await Promise.all([
++      hashPassword('secret'),
++      hashPassword('secret'),
++    ]);
++    expect(a).toMatch(
++      /^scrypt\$16384\$8\$1\$[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+$/,
++    );
++    expect(a).not.toContain('secret');
++    // A random salt per hash: the same password never hashes the same twice.
++    expect(a).not.toBe(b);
++  });
++
++  it('treats composed and decomposed accents as the same password', async () => {
++    const hash = await hashPassword('café');
++    expect(await verifyPassword('café', hash)).toBe(true);
++  });
++
++  it('never matches a malformed stored hash', async () => {
++    expect(await verifyPassword('x', '')).toBe(false);
++    expect(await verifyPassword('x', 'bcrypt$whatever')).toBe(false);
++    expect(await verifyPassword('x', 'scrypt$abc$8$1$c2FsdA==$a2V5')).toBe(
++      false,
++    );
++  });
++});
+diff --git a/apps/api/src/mail/share-email.spec.ts b/apps/api/src/mail/share-email.spec.ts
+new file mode 100644
+index 0000000..f51c31f
+--- /dev/null
++++ b/apps/api/src/mail/share-email.spec.ts
+@@ -0,0 +1,40 @@
++import { shareEmail, type SharedDrop } from './share-email.js';
++
++const url = 'https://dropwave.test/s/abc';
++const drop: SharedDrop = {
++  title: 'holiday <photos>',
++  fileCount: 3,
++  size: 3 * 1024 * 1024,
++  expiresAt: null,
++  protected: false,
++  burnAfterDownload: false,
++};
++
++describe('shareEmail', () => {
++  it('names the files and escapes the name in HTML', () => {
++    const email = shareEmail(drop, url);
++    expect(email.subject).toBe('Files were shared with you: holiday <photos>');
++    expect(email.text).toContain('3 files · 3.0 MB');
++    expect(email.html).toContain('holiday &lt;photos&gt;');
++    expect(email.html).not.toContain('<photos>');
++  });
++
++  it('names nothing for a protected link', () => {
++    const email = shareEmail({ ...drop, protected: true }, url);
++    for (const part of [email.subject, email.text, email.html]) {
++      expect(part).not.toContain('holiday');
++      expect(part).not.toContain('3 files');
++    }
++    expect(email.text).toContain('Ask the sender for the password');
++    expect(email.text).toContain(url);
++  });
++
++  it('warns that a burn-after-download link works once', () => {
++    const email = shareEmail(
++      { ...drop, fileCount: 1, burnAfterDownload: true },
++      url,
++    );
++    expect(email.subject).toBe('A file was shared with you: holiday <photos>');
++    expect(email.text).toContain('downloaded only once');
++  });
++});
+diff --git a/apps/api/test/app.e2e-spec.ts b/apps/api/test/app.e2e-spec.ts
+deleted file mode 100644
+index fd20981..0000000
+--- a/apps/api/test/app.e2e-spec.ts
++++ /dev/null
+@@ -1,29 +0,0 @@
+-import { Test, TestingModule } from '@nestjs/testing';
+-import { INestApplication } from '@nestjs/common';
+-import request from 'supertest';
+-import { App } from 'supertest/types';
+-import { AppModule } from './../src/app.module.js';
+-
+-describe('AppController (e2e)', () => {
+-  let app: INestApplication<App>;
+-
+-  beforeEach(async () => {
+-    const moduleFixture: TestingModule = await Test.createTestingModule({
+-      imports: [AppModule],
+-    }).compile();
+-
+-    app = moduleFixture.createNestApplication();
+-    await app.init();
+-  });
+-
+-  it('/ (GET)', () => {
+-    return request(app.getHttpServer())
+-      .get('/')
+-      .expect(200)
+-      .expect('Hello World!');
+-  });
+-
+-  afterEach(async () => {
+-    await app.close();
+-  });
+-});
+diff --git a/apps/api/test/drops.e2e-spec.ts b/apps/api/test/drops.e2e-spec.ts
+new file mode 100644
+index 0000000..15e1260
+--- /dev/null
++++ b/apps/api/test/drops.e2e-spec.ts
+@@ -0,0 +1,555 @@
++import { createHmac, randomInt } from 'node:crypto';
++import { Readable } from 'node:stream';
++import { Test } from '@nestjs/testing';
++import type { INestApplication } from '@nestjs/common';
++import request from 'supertest';
++import { AppModule } from '../src/app.module.js';
++import { configureApp } from '../src/app.setup.js';
++import { MailService, type Email } from '../src/mail/mail.service.js';
++import { PrismaService } from '../src/prisma/prisma.service.js';
++import { S3Service } from '../src/s3/s3.service.js';
++import { TasksService } from '../src/tasks/tasks.service.js';
++import { readZip } from './support/read-zip.js';
++
++const MB = 1024 * 1024;
++
++/** S3 in memory: what the browser "uploaded", and what the API deleted. */
++const objects = new Map<string, Buffer>();
++const fakeS3: Partial<S3Service> = {
++  buildFileKey: (id) => `uploads/${id}`,
++  createUploadUrl: async ({ key }) => `https://s3.test/${key}?put`,
++  createDownloadUrl: async ({ key, expiresIn }) =>
++    `https://s3.test/${key}?expires=${expiresIn}`,
++  getObjectInfo: async (key) => {
++    const body = objects.get(key);
++    return body ? { size: body.length, contentType: undefined } : null;
++  },
++  getObjectStream: async (key) => {
++    const body = objects.get(key);
++    if (!body) throw new Error(`NoSuchKey: ${key}`);
++    return Readable.from([body]);
++  },
++  deleteObject: async (key) => void objects.delete(key),
++  deleteObjects: async (keys) => {
++    keys.forEach((key) => objects.delete(key));
++    return { deleted: keys, errors: [] };
++  },
++};
++
++const sentEmails: { to: string; email: Email }[] = [];
++const fakeMail: Partial<MailService> = {
++  send: async (to, email) => {
++    sentEmails.push({ to, email });
++    return 'message-id';
++  },
++};
++
++/** A different client IP per call, so the per-IP throttles don't get in the way. */
++const anyIp = () => `203.0.113.${randomInt(1, 255)}`;
++
++type NewFile = { path: string; contentType?: string; body: Buffer };
++type Created = {
++  dropId: string;
++  uploadToken: string;
++  files: { id: string; path: string; uploadUrl: string }[];
++};
++
++describe.skipIf(!process.env.E2E_DATABASE_URL)('drops (e2e)', () => {
++  let app: INestApplication;
++  let prisma: PrismaService;
++  const created: string[] = [];
++
++  beforeAll(async () => {
++    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
++      .overrideProvider(S3Service)
++      .useValue(fakeS3)
++      .overrideProvider(MailService)
++      .useValue(fakeMail)
++      .compile();
++    app = moduleRef.createNestApplication({ rawBody: true });
++    configureApp(app);
++    await app.init();
++    prisma = app.get(PrismaService);
++  });
++
++  afterAll(async () => {
++    await prisma?.drop.deleteMany({ where: { id: { in: created } } });
++    await app?.close();
++  });
++
++  const api = () => request(app.getHttpServer());
++
++  async function createDrop(
++    files: NewFile[],
++    options: { password?: string; burnAfterDownload?: boolean } = {},
++  ): Promise<Created> {
++    const res = await api()
++      .post('/api/drops')
++      .set('cf-connecting-ip', anyIp())
++      .send({
++        files: files.map((file) => ({
++          path: file.path,
++          contentType: file.contentType ?? 'text/plain',
++          size: file.body.length,
++        })),
++        ...options,
++      })
++      .expect(201);
++    created.push(res.body.dropId);
++    return res.body as Created;
++  }
++
++  /** The Lambda's verdict, signed like apps/file-check does. */
++  async function scanResult(fileId: string, verdict: 'clean' | 'rejected') {
++    const body = JSON.stringify({
++      key: `uploads/${fileId}`,
++      verdict,
++      reason:
++        verdict === 'rejected' ? 'Content does not match its type' : undefined,
++    });
++    const timestamp = Math.floor(Date.now() / 1000).toString();
++    const signature = createHmac('sha256', 'e2e-scan-result-secret')
++      .update(`${timestamp}.${body}`)
++      .digest('hex');
++    await api()
++      .post('/api/internal/scan-result')
++      .set('content-type', 'application/json')
++      .set('x-dropwave-timestamp', timestamp)
++      .set('x-dropwave-signature', `sha256=${signature}`)
++      .send(body)
++      .expect(204);
++  }
++
++  /** Creates a drop and takes every file through upload, confirm and a clean check. */
++  async function uploadDrop(
++    files: NewFile[],
++    options: { password?: string; burnAfterDownload?: boolean } = {},
++  ) {
++    const drop = await createDrop(files, options);
++    for (const [index, file] of drop.files.entries()) {
++      objects.set(`uploads/${file.id}`, files[index]!.body);
++      await api()
++        .post(`/api/drops/${drop.dropId}/files/${file.id}/confirm`)
++        .set('x-upload-token', drop.uploadToken)
++        .expect(201);
++      await scanResult(file.id, 'clean');
++    }
++    return drop;
++  }
++
++  async function unlockCookie(dropId: string, password: string) {
++    const res = await api()
++      .post(`/api/drops/${dropId}/unlock`)
++      .set('cf-connecting-ip', anyIp())
++      .send({ password })
++      .expect(200);
++    const cookie = res.headers['set-cookie']?.[0] ?? '';
++    return { res, cookie: cookie.split(';')[0]!, header: cookie };
++  }
++
++  const zipOf = (res: request.Response) => readZip(res.body as Buffer);
++  const binary = (
++    res: request.Response,
++    done: (error: Error | null, body: Buffer) => void,
++  ) => {
++    const chunks: Buffer[] = [];
++    res.on('data', (chunk: Buffer) => chunks.push(chunk));
++    res.on('end', () => done(null, Buffer.concat(chunks)));
++  };
++
++  describe('bundles', () => {
++    it('stays hidden until every file is confirmed, then lists them', async () => {
++      const drop = await createDrop([
++        { path: 'trip/notes.txt', body: Buffer.from('notes') },
++        { path: 'trip/photos/a.txt', body: Buffer.from('a') },
++      ]);
++      const [first, second] = drop.files;
++
++      await api().get(`/api/drops/${drop.dropId}`).expect(404);
++
++      // The share link alone can't touch the upload routes.
++      await api()
++        .post(`/api/drops/${drop.dropId}/files/${first!.id}/upload-url`)
++        .expect(401);
++      await api()
++        .post(`/api/drops/${drop.dropId}/files/${first!.id}/upload-url`)
++        .set('x-upload-token', drop.uploadToken)
++        .expect(201);
++
++      objects.set(`uploads/${first!.id}`, Buffer.from('notes'));
++      objects.set(`uploads/${second!.id}`, Buffer.from('a'));
++      for (const file of drop.files) {
++        await api()
++          .post(`/api/drops/${drop.dropId}/files/${file.id}/confirm`)
++          .set('x-upload-token', drop.uploadToken)
++          .expect(201);
++      }
++
++      const scanning = await api().get(`/api/drops/${drop.dropId}`).expect(200);
++      expect(
++        scanning.body.files.map((f: { status: string }) => f.status),
++      ).toEqual(['SCANNING', 'SCANNING']);
++
++      await scanResult(first!.id, 'clean');
++      await scanResult(second!.id, 'rejected');
++      const info = await api().get(`/api/drops/${drop.dropId}`).expect(200);
++      expect(info.body).toMatchObject({ locked: false, protected: false });
++      expect(info.body.files).toEqual([
++        expect.objectContaining({ path: 'trip/notes.txt', status: 'UPLOADED' }),
++        expect.objectContaining({
++          path: 'trip/photos/a.txt',
++          status: 'REMOVED',
++        }),
++      ]);
++    });
++
++    it('drops a file removed during the upload', async () => {
++      const drop = await createDrop([
++        { path: 'a.txt', body: Buffer.from('a') },
++        { path: 'b.txt', body: Buffer.from('b') },
++      ]);
++      const [kept, removed] = drop.files;
++      await api()
++        .delete(`/api/drops/${drop.dropId}/files/${removed!.id}`)
++        .set('x-upload-token', drop.uploadToken)
++        .expect(204);
++      objects.set(`uploads/${kept!.id}`, Buffer.from('a'));
++      await api()
++        .post(`/api/drops/${drop.dropId}/files/${kept!.id}/confirm`)
++        .set('x-upload-token', drop.uploadToken)
++        .expect(201);
++      await scanResult(kept!.id, 'clean');
++
++      const info = await api().get(`/api/drops/${drop.dropId}`).expect(200);
++      expect(info.body.files.map((f: { path: string }) => f.path)).toEqual([
++        'a.txt',
++      ]);
++    });
++
++    it('refuses unsafe paths, duplicates and drops over the limits', async () => {
++      const file = (path: string, size = 10) => ({
++        path,
++        contentType: 'text/plain',
++        size,
++      });
++      const post = (files: object[]) =>
++        api()
++          .post('/api/drops')
++          .set('cf-connecting-ip', anyIp())
++          .send({ files });
++
++      await post([file('../secrets.txt')]).expect(400);
++      await post([file('a.txt'), file('A.TXT')]).expect(400);
++      // The zip couldn't be extracted: "notes" can't be a file and a folder.
++      await post([file('notes'), file('notes/b.txt')]).expect(400);
++      await post(Array.from({ length: 21 }, (_, i) => file(`${i}.txt`))).expect(
++        400,
++      );
++      // Each under 20 MB, but 120 MB together.
++      await post(
++        Array.from({ length: 6 }, (_, i) => file(`${i}.bin`, 20 * MB)),
++      ).expect(400);
++      await post([file('big.bin', 20 * MB + 1)]).expect(400);
++    });
++
++    it('streams "Download all" as a zip of every available file', async () => {
++      const drop = await uploadDrop([
++        {
++          path: 'site/index.html',
++          contentType: 'text/html',
++          body: Buffer.from('<h1>hi</h1>'),
++        },
++        {
++          path: 'site/img/logo.png',
++          contentType: 'image/png',
++          body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
++        },
++      ]);
++
++      const res = await api()
++        .get(`/api/drops/${drop.dropId}/download`)
++        .buffer(true)
++        .parse(binary)
++        .expect(200);
++      expect(res.headers['content-type']).toBe('application/zip');
++      expect(res.headers['content-disposition']).toContain(
++        'filename="site.zip"',
++      );
++
++      const entries = zipOf(res);
++      expect(entries.map((e) => e.name)).toEqual([
++        'site/img/logo.png',
++        'site/index.html',
++      ]);
++      expect(entries[1]!.data.toString()).toBe('<h1>hi</h1>');
++      expect(
++        entries[0]!.data.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])),
++      ).toBe(true);
++    });
++  });
++
++  describe('password-protected links', () => {
++    it('shows nothing but the lock until the right password is entered', async () => {
++      const drop = await uploadDrop(
++        [
++          {
++            path: 'payslip-march.pdf',
++            contentType: 'application/pdf',
++            body: Buffer.from('%PDF-1.7'),
++          },
++        ],
++        { password: 'open sesame' },
++      );
++      const fileId = drop.files[0]!.id;
++
++      const locked = await api().get(`/api/drops/${drop.dropId}`).expect(200);
++      expect(locked.body).toEqual({
++        id: drop.dropId,
++        protected: true,
++        burnAfterDownload: false,
++        expiresAt: null,
++        locked: true,
++      });
++      expect(JSON.stringify(locked.body)).not.toContain('payslip');
++
++      await api()
++        .get(`/api/drops/${drop.dropId}/files/${fileId}/preview`)
++        .expect(401);
++      await api()
++        .get(`/api/drops/${drop.dropId}/files/${fileId}/download`)
++        .expect(401);
++      await api().get(`/api/drops/${drop.dropId}/download`).expect(401);
++
++      const wrong = await api()
++        .post(`/api/drops/${drop.dropId}/unlock`)
++        .send({ password: 'open sesam' })
++        .expect(401);
++      expect(wrong.body).toMatchObject({
++        reason: 'wrong-password',
++        attemptsLeft: 4,
++      });
++
++      const { res, cookie, header } = await unlockCookie(
++        drop.dropId,
++        'open sesame',
++      );
++      expect(new Date(res.body.unlockedUntil).getTime()).toBeGreaterThan(
++        Date.now() + 14 * 60_000,
++      );
++      expect(header).toContain(`Path=/api/drops/${drop.dropId}`);
++      expect(header).toContain('HttpOnly');
++      expect(header).toContain('SameSite=Strict');
++
++      const open = await api()
++        .get(`/api/drops/${drop.dropId}`)
++        .set('cookie', cookie)
++        .expect(200);
++      expect(open.body.files[0]).toMatchObject({
++        filename: 'payslip-march.pdf',
++      });
++      await api()
++        .get(`/api/drops/${drop.dropId}/files/${fileId}/download`)
++        .set('cookie', cookie)
++        .expect(302);
++
++      // The token is tied to its drop: it doesn't open another protected link.
++      const other = await uploadDrop(
++        [{ path: 'x.txt', body: Buffer.from('x') }],
++        {
++          password: 'open sesame',
++        },
++      );
++      const elsewhere = await api()
++        .get(`/api/drops/${other.dropId}`)
++        .set('cookie', cookie)
++        .expect(200);
++      expect(elsewhere.body.locked).toBe(true);
++    });
++
++    it('stops guessing after 5 wrong passwords, from any number of IPs', async () => {
++      const drop = await uploadDrop(
++        [{ path: 'a.txt', body: Buffer.from('a') }],
++        {
++          password: 'right one',
++        },
++      );
++      const attempt = (password: string) =>
++        api()
++          .post(`/api/drops/${drop.dropId}/unlock`)
++          .set('cf-connecting-ip', anyIp())
++          .send({ password });
++
++      // Fired together: the limit holds even when the guesses race.
++      const results = await Promise.all(
++        Array.from({ length: 7 }, (_, i) => attempt(`guess ${i}`)),
++      );
++      const statuses = results.map((r) => r.status).sort();
++      expect(statuses).toEqual([401, 401, 401, 401, 401, 429, 429]);
++
++      // Even the right password waits for the window to end.
++      const blocked = await attempt('right one').expect(429);
++      expect(blocked.body.message).toMatch(/Try again in \d+ minutes?/);
++    });
++
++    it('emails a protected link without naming the file or sending the password', async () => {
++      const drop = await uploadDrop(
++        [
++          {
++            path: 'tax-return.pdf',
++            contentType: 'application/pdf',
++            body: Buffer.from('%PDF'),
++          },
++        ],
++        {
++          password: 'hunter22',
++        },
++      );
++      sentEmails.length = 0;
++      await api()
++        .post(`/api/drops/${drop.dropId}/share`)
++        .set('cf-connecting-ip', anyIp())
++        .send({ emails: ['friend@example.com'] })
++        .expect(201);
++
++      expect(sentEmails).toHaveLength(1);
++      const { subject, text, html } = sentEmails[0]!.email;
++      for (const part of [subject, text, html]) {
++        expect(part).not.toContain('tax-return');
++        expect(part).not.toContain('hunter22');
++      }
++      expect(text).toContain(`/s/${drop.dropId}`);
++    });
++  });
++
++  describe('delete after the first download', () => {
++    it('lets exactly one of two simultaneous downloads through', async () => {
++      const drop = await uploadDrop(
++        [{ path: 'once.txt', body: Buffer.from('once') }],
++        {
++          burnAfterDownload: true,
++        },
++      );
++      const fileId = drop.files[0]!.id;
++
++      // No preview: the content can only be fetched by its one download.
++      await api()
++        .get(`/api/drops/${drop.dropId}/files/${fileId}/preview`)
++        .expect(400);
++
++      const download = () =>
++        api()
++          .get(`/api/drops/${drop.dropId}/files/${fileId}/download`)
++          .redirects(0);
++      const [a, b] = await Promise.all([download(), download()]);
++      expect([a.status, b.status].sort()).toEqual([302, 410]);
++      const winner = a.status === 302 ? a : b;
++      // The presigned URL can be reused until it expires, so it only lasts a minute.
++      expect(winner.headers.location).toContain('expires=60');
++
++      const after = await api().get(`/api/drops/${drop.dropId}`).expect(410);
++      expect(after.body.reason).toBe('consumed');
++    });
++
++    it("isn't used up by HEAD requests (link checkers, download managers)", async () => {
++      const single = await uploadDrop(
++        [{ path: 'once.txt', body: Buffer.from('once') }],
++        { burnAfterDownload: true },
++      );
++      const bundle = await uploadDrop(
++        [
++          { path: 'a.txt', body: Buffer.from('a') },
++          { path: 'b.txt', body: Buffer.from('b') },
++        ],
++        { burnAfterDownload: true },
++      );
++
++      const head = await api()
++        .head(
++          `/api/drops/${single.dropId}/files/${single.files[0]!.id}/download`,
++        )
++        .redirects(0)
++        .expect(200);
++      expect(head.headers.location).toBeUndefined();
++      const zipHead = await api()
++        .head(`/api/drops/${bundle.dropId}/download`)
++        .expect(200);
++      expect(zipHead.headers['content-type']).toBe('application/zip');
++
++      await api().get(`/api/drops/${single.dropId}`).expect(200);
++      await api().get(`/api/drops/${bundle.dropId}`).expect(200);
++      for (const file of bundle.files) {
++        expect(objects.has(`uploads/${file.id}`)).toBe(true);
++      }
++    });
++
++    it('is used up by "Download all" on a bundle, which deletes the files', async () => {
++      const drop = await uploadDrop(
++        [
++          { path: 'a.txt', body: Buffer.from('a') },
++          { path: 'b.txt', body: Buffer.from('b') },
++        ],
++        { burnAfterDownload: true, password: 'both options' },
++      );
++      const { cookie } = await unlockCookie(drop.dropId, 'both options');
++
++      // One download for the whole link: single files would use it up early.
++      await api()
++        .get(`/api/drops/${drop.dropId}/files/${drop.files[0]!.id}/download`)
++        .set('cookie', cookie)
++        .expect(400);
++
++      const zips = await Promise.all(
++        [0, 1].map(() =>
++          api()
++            .get(`/api/drops/${drop.dropId}/download`)
++            .set('cookie', cookie)
++            .buffer(true)
++            .parse(binary),
++        ),
++      );
++      expect(zips.map((r) => r.status).sort()).toEqual([200, 410]);
++      const zip = zips.find((r) => r.status === 200)!;
++      expect(zipOf(zip).map((e) => e.name)).toEqual(['a.txt', 'b.txt']);
++
++      for (const file of drop.files) {
++        expect(objects.has(`uploads/${file.id}`)).toBe(false);
++      }
++      const rows = await prisma.file.findMany({
++        where: { dropId: drop.dropId },
++      });
++      expect(rows.every((row) => row.status === 'DELETED')).toBe(true);
++    });
++
++    it("leaves a zip's files to the zip, however long it streams", async () => {
++      const zipped = await uploadDrop(
++        [
++          { path: 'a.txt', body: Buffer.from('a') },
++          { path: 'b.txt', body: Buffer.from('b') },
++        ],
++        { burnAfterDownload: true },
++      );
++      const single = await uploadDrop(
++        [{ path: 'once.txt', body: Buffer.from('once') }],
++        { burnAfterDownload: true },
++      );
++      // Both used up 5 minutes ago: well past the single file's one-minute URL,
++      // while a slow client may still be reading the zip.
++      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
++      await prisma.drop.update({
++        where: { id: zipped.dropId },
++        data: { consumedAt: fiveMinutesAgo, consumedBy: 'ZIP' },
++      });
++      await prisma.drop.update({
++        where: { id: single.dropId },
++        data: { consumedAt: fiveMinutesAgo, consumedBy: 'FILE' },
++      });
++
++      await app.get(TasksService).purgeDownloadedDrops();
++
++      expect(objects.has(`uploads/${single.files[0]!.id}`)).toBe(false);
++      for (const file of zipped.files) {
++        expect(objects.has(`uploads/${file.id}`)).toBe(true);
++      }
++    });
++  });
++});
+diff --git a/apps/api/test/support/read-zip.ts b/apps/api/test/support/read-zip.ts
+new file mode 100644
+index 0000000..ac711f3
+--- /dev/null
++++ b/apps/api/test/support/read-zip.ts
+@@ -0,0 +1,43 @@
++import { inflateRawSync } from 'node:zlib';
++
++export type ZipFileEntry = { name: string; stored: boolean; data: Buffer };
++
++/**
++ * Reads a whole zip from its central directory, like an unzip tool does, so tests
++ * check the archive a user would really open. Enough for archiver's output: no
++ * zip64, no encryption, "store" or "deflate" only.
++ */
++export function readZip(zip: Buffer): ZipFileEntry[] {
++  const end = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
++  if (end === -1) throw new Error('No end of central directory: not a zip');
++  const count = zip.readUInt16LE(end + 10);
++  let offset = zip.readUInt32LE(end + 16);
++
++  const entries: ZipFileEntry[] = [];
++  for (let i = 0; i < count; i++) {
++    if (zip.readUInt32LE(offset) !== 0x02014b50) {
++      throw new Error('Broken central directory');
++    }
++    const method = zip.readUInt16LE(offset + 10);
++    const compressedSize = zip.readUInt32LE(offset + 20);
++    const nameLength = zip.readUInt16LE(offset + 28);
++    const extraLength = zip.readUInt16LE(offset + 30);
++    const commentLength = zip.readUInt16LE(offset + 32);
++    const localOffset = zip.readUInt32LE(offset + 42);
++    const name = zip.toString('utf8', offset + 46, offset + 46 + nameLength);
++
++    const dataStart =
++      localOffset +
++      30 +
++      zip.readUInt16LE(localOffset + 26) +
++      zip.readUInt16LE(localOffset + 28);
++    const raw = zip.subarray(dataStart, dataStart + compressedSize);
++    entries.push({
++      name,
++      stored: method === 0,
++      data: method === 0 ? Buffer.from(raw) : inflateRawSync(raw),
++    });
++    offset += 46 + nameLength + extraLength + commentLength;
++  }
++  return entries;
++}
+diff --git a/apps/api/vitest.config.e2e.ts b/apps/api/vitest.config.e2e.ts
+index b5b532c..4f722e7 100644
+--- a/apps/api/vitest.config.e2e.ts
++++ b/apps/api/vitest.config.e2e.ts
+@@ -7,5 +7,18 @@ export default defineConfig({
+     globals: true,
+     root: './',
+     include: ['**/*.e2e-spec.ts'],
++    // Real database round trips and scrypt hashing: slower than unit tests on a busy machine.
++    testTimeout: 20_000,
++    // The suite writes to a real Postgres database, so it only runs against one
++    // named explicitly, never the DATABASE_URL in .env. S3 and SES are faked.
++    env: {
++      DATABASE_URL: process.env.E2E_DATABASE_URL ?? '',
++      APP_URL: 'http://localhost:3000',
++      SCAN_RESULT_SECRET: 'e2e-scan-result-secret',
++      AWS_REGION: 'eu-west-3',
++      S3_BUCKET: 'e2e-bucket',
++      MAIL_FROM: 'Dropwave <noreply@example.com>',
++      LOG_LEVEL: 'silent',
++    },
+   },
+ });

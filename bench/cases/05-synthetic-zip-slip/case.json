@@ -1,0 +1,23 @@
+{
+  "id": "05-synthetic-zip-slip",
+  "kind": "synthetic",
+  "title": "Accept zip-tool paths like photos/../cover.jpg",
+  "body": "Some zip tools write paths with \"..\" after a folder. They were rejected as invalid file paths; keep them now.",
+  "base": {
+    "sha": "892ddf8f6eb131ef8896c8ceb2167872d6fbceb5"
+  },
+  "source": {
+    "note": "Synthetic: written for this benchmark against 892ddf8."
+  },
+  "note": "normalizeRelativePath keeps \"..\" after the first segment.",
+  "expected": [
+    {
+      "id": "path-traversal",
+      "file": "apps/api/src/lib/drop-paths.ts",
+      "lineStart": 19,
+      "lineEnd": 20,
+      "severity": "blocker",
+      "description": "A \"..\" after a folder is now kept, so \"photos/../../evil.sh\" passes normalizeRelativePath; it is stored as the file's path and written as a zip entry name, so extracting the \"Download all\" zip writes outside the target folder (zip slip). The existing spec expects photos/../../a.jpg to be rejected."
+    }
+  ]
+}

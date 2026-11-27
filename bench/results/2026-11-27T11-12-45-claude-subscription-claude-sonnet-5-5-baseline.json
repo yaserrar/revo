@@ -1,0 +1,728 @@
+{
+  "startedAt": "2026-11-27T11:12:45.354Z",
+  "finishedAt": "2026-11-27T11:16:34.598Z",
+  "engine": "claude-subscription",
+  "model": "claude-sonnet-5-5",
+  "effort": "high",
+  "label": "baseline",
+  "source": "../dropwave",
+  "summary": {
+    "cases": 16,
+    "failed": 0,
+    "bugCases": 8,
+    "bugs": 9,
+    "bugsCaught": 7,
+    "catchRate": 0.7777777777777778,
+    "bugCasesFullyCaught": 6,
+    "droppedInPass2": 1,
+    "extraFindings": 0,
+    "duplicateFindings": 0,
+    "cleanCases": 8,
+    "cleanCasesQuiet": 8,
+    "falseAlarms": 0,
+    "falseAlarmsPerCleanCase": 0,
+    "nits": 1,
+    "nitsPerCleanCase": 0.125,
+    "knownFalsePositives": 0,
+    "avgTokens": {
+      "input": 34584.5625,
+      "cacheRead": 8487.625,
+      "cacheWrite": 34524.125,
+      "output": 1620,
+      "total": 79216.3125
+    },
+    "avgApiEquivalentUsd": 0.17252825,
+    "totalApiEquivalentUsd": 2.760452,
+    "totalBilledUsd": 0,
+    "avgDurationMs": 14253.3125,
+    "maxDurationMs": 41633,
+    "totalDurationMs": 228053
+  },
+  "results": [
+    {
+      "id": "01-planted-any-types",
+      "kind": "planted",
+      "expected": [
+        {
+          "file": "apps/api/src/lib/format.ts",
+          "lineStart": 4,
+          "lineEnd": 4,
+          "id": "any-types",
+          "severity": "minor",
+          "description": "formatBytes(bytes: any): any drops the number/string types: callers lose type checking and a non-number (a string size, undefined) now flows through silently and prints \"NaN undefined\".",
+          "alsoAt": [],
+          "confirm": "Type-safety regression with no runtime bug today. Should Revo be expected to report it (it is a minor at most)? If not, move this case to the clean set."
+        }
+      ],
+      "claudeCodeEstimateUsd": 0.0534049,
+      "findings": [],
+      "rejected": [],
+      "score": {
+        "caught": [],
+        "missed": [
+          "any-types"
+        ],
+        "droppedInPass2": [],
+        "labels": []
+      },
+      "tokens": {
+        "input": 12238,
+        "cacheRead": 4038,
+        "cacheWrite": 11696,
+        "output": 517
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.05929,
+      "durationMs": 6059,
+      "filesReviewed": 1,
+      "filesSkipped": 0,
+      "notes": [
+        "Also read 3 files outside this PR that call code it changes: apps/api/src/drops/uploads.service.ts, apps/api/src/mail/share-email.ts, apps/web/components/share/file-preview-dialog.tsx."
+      ],
+      "outcome": "missed"
+    },
+    {
+      "id": "02-planted-burn-field-rename",
+      "kind": "planted",
+      "expected": [
+        {
+          "file": "apps/api/src/drops/drops.service.ts",
+          "lineStart": 144,
+          "lineEnd": 144,
+          "id": "burn-field-rename",
+          "severity": "major",
+          "description": "GET /drops/:id now returns burnOnce instead of burnAfterDownload, but the web app (types/drop.ts, shared-bundle-card.tsx, shared-file-card.tsx, unlock-card.tsx) still reads drop.burnAfterDownload: burn-after-download links look like normal links, previews and per-file downloads are offered and then refused.",
+          "alsoAt": [
+            {
+              "file": "apps/api/test/drops.e2e-spec.ts",
+              "lineStart": 309,
+              "lineEnd": 309
+            }
+          ]
+        }
+      ],
+      "claudeCodeEstimateUsd": 0.29952309999999993,
+      "findings": [],
+      "rejected": [
+        {
+          "file": "apps/api/src/drops/drops.service.ts",
+          "lineStart": 144,
+          "lineEnd": 144,
+          "severity": "major",
+          "category": "bug",
+          "title": "Renamed response field breaks clients that read burnAfterDownload",
+          "explanation": "GET /drops/:id is the public share-page endpoint. The PR renames `burnAfterDownload` to `burnOnce` in the response and changes only the API e2e test. No consumer of the response is updated. A client that still reads `burnAfterDownload` (for example the share page that warns about one-time downloads) now gets `undefined`. It would treat burn-after-download links as normal links, and the one-time warning would silently disappear. The name is also inconsistent with the create request, the DB column and the share email, which all keep `burnAfterDownload`.",
+          "confidence": 0.6,
+          "reason": "The rename at line 144 is intentional, and the PR updates the e2e test. The removed_names users (share-email.ts, create-drop.dto.ts, uploads.service.ts, the migration) read the request DTO, the DB column or the email model, not this response. No client of GET /drops/:id that reads `burnAfterDownload` is visible. The claim that a share page breaks depends on unseen code."
+        }
+      ],
+      "score": {
+        "caught": [],
+        "missed": [
+          "burn-field-rename"
+        ],
+        "droppedInPass2": [
+          "burn-field-rename"
+        ],
+        "labels": []
+      },
+      "tokens": {
+        "input": 70197,
+        "cacheRead": 7863,
+        "cacheWrite": 69111,
+        "output": 1575
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.329708,
+      "durationMs": 14773,
+      "filesReviewed": 2,
+      "filesSkipped": 0,
+      "notes": [
+        "Also read 3 files outside this PR that still use a name the change removes or renames: apps/api/prisma/migrations/20261121120000_add_drops/migration.sql, apps/api/src/drops/dto/create-drop.dto.ts, apps/api/src/drops/uploads.service.ts.",
+        "Also read a file outside this PR that calls code it changes: apps/api/src/drops/drops.controller.ts."
+      ],
+      "outcome": "missed"
+    },
+    {
+      "id": "03-planted-burn-race",
+      "kind": "planted",
+      "expected": [
+        {
+          "file": "apps/api/src/drops/drops.service.ts",
+          "lineStart": 463,
+          "lineEnd": 474,
+          "id": "burn-race",
+          "severity": "major",
+          "description": "consume() now reads, checks, then writes (findUnique + update) instead of one UPDATE guarded by consumedAt IS NULL: two downloads at the same moment both pass the check, so a burn-after-download link can be downloaded twice.",
+          "alsoAt": []
+        }
+      ],
+      "claudeCodeEstimateUsd": 0.14274019999999998,
+      "findings": [
+        {
+          "file": "apps/api/src/drops/drops.service.ts",
+          "lineStart": 464,
+          "lineEnd": 473,
+          "severity": "major",
+          "category": "bug",
+          "title": "consume() is no longer atomic: two concurrent downloads can both succeed",
+          "explanation": "The read (findUnlocked/findUnique) and the later update are separate statements, and the update is keyed only by id. Two simultaneous requests on a burn-after-download link can both read consumedAt = null, both pass the check, and both write. Both then get a presigned URL or a zip, so a one-time link is downloaded twice. The old code used a single updateMany guarded by consumedAt: null, so exactly one request won.",
+          "confidence": 0.95,
+          "reason": "consume() (lines 464-473) now does findUnique then an unguarded update by id. Two concurrent requests can both read consumedAt = null, both pass line 468, and both write. Both then get a URL or zip, so the one-time guarantee breaks. The removed updateMany with `consumedAt: null` was the atomic guard. The replacement restores it and still compiles."
+        }
+      ],
+      "rejected": [],
+      "score": {
+        "caught": [
+          "burn-race"
+        ],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": [
+          "hit"
+        ]
+      },
+      "tokens": {
+        "input": 16993,
+        "cacheRead": 7863,
+        "cacheWrite": 33289,
+        "output": 730
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.125295,
+      "durationMs": 7502,
+      "filesReviewed": 1,
+      "filesSkipped": 0,
+      "notes": [],
+      "outcome": "caught"
+    },
+    {
+      "id": "04-planted-unlock-rename-limiter",
+      "kind": "planted",
+      "expected": [
+        {
+          "file": "apps/api/src/drops/drops.service.ts",
+          "lineStart": 155,
+          "lineEnd": 155,
+          "id": "unlock-field-rename",
+          "severity": "major",
+          "description": "GET /drops/:id returns unlockExpiresAt instead of unlockedUntil, but the web app (shared-drop.tsx, types/drop.ts) still reads data.unlockedUntil: the timer that shows the password prompt again when the unlock ends never runs.",
+          "alsoAt": []
+        },
+        {
+          "file": "apps/web/lib/limit.ts",
+          "lineStart": 20,
+          "lineEnd": 24,
+          "id": "limiter-slot-leak",
+          "severity": "major",
+          "description": "When a task rejects, active is never decremented and next() is not called (the .finally was dropped): each failed upload leaks a concurrency slot, and after `concurrency` failures every queued upload hangs forever.",
+          "alsoAt": []
+        }
+      ],
+      "claudeCodeEstimateUsd": 0.3088195,
+      "findings": [
+        {
+          "file": "apps/api/src/drops/drops.service.ts",
+          "lineStart": 155,
+          "lineEnd": 155,
+          "severity": "major",
+          "category": "bug",
+          "title": "Renamed response field still read as `unlockedUntil` by the web client",
+          "explanation": "GET /drops/:id now returns `unlockExpiresAt` instead of `unlockedUntil`. apps/web/components/share/shared-drop.tsx still reads `data.unlockedUntil`, which is now undefined. The effect that re-invalidates the query when the 15-minute unlock cookie expires never schedules its timer. An unlocked share page then keeps showing the files and the download buttons after the cookie is gone, and downloads fail with 401 instead of the password prompt returning.",
+          "confidence": 0.85,
+          "reason": "Line 155 now returns `unlockExpiresAt`, but shared-drop.tsx line 31 still reads `data.unlockedUntil`, which is undefined at runtime. The `if (!unlockedUntil) return;` guard then skips the timer, so the page is never refetched when the 15-minute cookie expires. The controller's `unlock` response still uses `unlockedUntil`, so only the GET info field was renamed."
+        },
+        {
+          "file": "apps/web/lib/limit.ts",
+          "lineStart": 20,
+          "lineEnd": 24,
+          "severity": "minor",
+          "category": "bug",
+          "title": "Limiter leaks a slot when a task rejects, stalling the queue",
+          "explanation": "The `.finally` that decremented `active` and called `next()` was removed. Now `active -= 1` and `next()` run only on success; the `reject` path skips both. Each rejected task permanently consumes a concurrency slot. After `concurrency` rejections, `active` stays at the limit and every queued task never starts. Promises that wait on those tasks then hang, for example the `Promise.all` in `run`, so uploads freeze. A synchronously throwing task is also not handled.",
+          "confidence": 0.85,
+          "reason": "In limit.ts lines 20-24, `active -= 1` and `next()` now run only in the fulfilled handler. A rejected task (`reject` as the second argument) never frees its slot. use-drop-uploads.ts `uploadOne` catches its own errors, so uploads are mostly protected, but the limiter is generic and the regression is real. The suggested replacement restores the original `.finally` and keeps the indentation."
+        }
+      ],
+      "rejected": [],
+      "score": {
+        "caught": [
+          "unlock-field-rename",
+          "limiter-slot-leak"
+        ],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": [
+          "hit",
+          "hit"
+        ]
+      },
+      "tokens": {
+        "input": 71431,
+        "cacheRead": 7863,
+        "cacheWrite": 70347,
+        "output": 1996
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.339476,
+      "durationMs": 16473,
+      "filesReviewed": 2,
+      "filesSkipped": 0,
+      "notes": [
+        "Also read 3 files outside this PR that still use a name the change removes or renames: apps/api/src/drops/drops.controller.ts, apps/api/test/drops.e2e-spec.ts, apps/web/components/share/shared-drop.tsx.",
+        "Also read a file outside this PR that calls code it changes: apps/web/hooks/use-drop-uploads.ts."
+      ],
+      "outcome": "caught"
+    },
+    {
+      "id": "05-synthetic-zip-slip",
+      "kind": "synthetic",
+      "expected": [
+        {
+          "file": "apps/api/src/lib/drop-paths.ts",
+          "lineStart": 19,
+          "lineEnd": 20,
+          "id": "path-traversal",
+          "severity": "blocker",
+          "description": "A \"..\" after a folder is now kept, so \"photos/../../evil.sh\" passes normalizeRelativePath; it is stored as the file's path and written as a zip entry name, so extracting the \"Download all\" zip writes outside the target folder (zip slip). The existing spec expects photos/../../a.jpg to be rejected.",
+          "alsoAt": []
+        }
+      ],
+      "claudeCodeEstimateUsd": 0.10755880000000001,
+      "findings": [
+        {
+          "file": "apps/api/src/lib/drop-paths.ts",
+          "lineStart": 19,
+          "lineEnd": 20,
+          "severity": "blocker",
+          "category": "security",
+          "title": "\"..\" after a folder is kept, so \"a/../../x\" escapes the drop (zip slip)",
+          "explanation": "The check only rejects \"..\" when no segment has been pushed yet. Because \"..\" is itself pushed, the second \"..\" in \"a/../../etc/passwd\" sees segments.length > 0 and is kept. The normalized path is \"a/../../etc/passwd\", which is then stored and used as the zip entry name. Extracting that zip writes outside the target folder. The existing spec case 'photos/../../a.jpg' (expects null) now fails. Paths like \"photos/../a.jpg\" and \"a.jpg\" also become a real conflict on extraction that findPathConflict can't see, because it compares literal strings.",
+          "confidence": 0.93,
+          "reason": "Line 20 only rejects '..' when segments is empty, and a '..' that passes is pushed (line 23). For 'a/../../etc/passwd' the second '..' sees segments.length 2, so the path is kept with its '..' segments and used as a zip entry name. That is a zip-slip. The existing spec case 'photos/../../a.jpg' expects null and would now fail."
+        }
+      ],
+      "rejected": [],
+      "score": {
+        "caught": [
+          "path-traversal"
+        ],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": [
+          "hit"
+        ]
+      },
+      "tokens": {
+        "input": 22874,
+        "cacheRead": 7863,
+        "cacheWrite": 21791,
+        "output": 1776
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.11877199999999999,
+      "durationMs": 15556,
+      "filesReviewed": 1,
+      "filesSkipped": 0,
+      "notes": [
+        "Also read 2 files outside this PR that call code it changes: apps/api/src/drops/uploads.service.ts, apps/api/src/lib/drop-paths.spec.ts."
+      ],
+      "outcome": "caught"
+    },
+    {
+      "id": "06-synthetic-upload-guard",
+      "kind": "synthetic",
+      "expected": [
+        {
+          "file": "apps/api/src/drops/upload-token.guard.ts",
+          "lineStart": 25,
+          "lineEnd": 27,
+          "id": "upload-auth-bypass",
+          "severity": "blocker",
+          "description": "A request with no x-upload-token header now passes the guard: anyone who has a share link (the drop id) can add, replace or remove that drop's files.",
+          "alsoAt": []
+        }
+      ],
+      "claudeCodeEstimateUsd": 0.030945599999999997,
+      "findings": [
+        {
+          "file": "apps/api/src/drops/upload-token.guard.ts",
+          "lineStart": 25,
+          "lineEnd": 27,
+          "severity": "blocker",
+          "category": "security",
+          "title": "Guard bypass: requests with no upload token are always allowed",
+          "explanation": "`if (!token) return true;` makes the guard pass for any request that omits the header. An attacker who only has the share link (exactly what the guard is meant to protect against) can add, replace or remove files by simply not sending `x-upload-token`. Only requests with an invalid token are rejected, so the guard now blocks nobody who is trying to bypass it.",
+          "confidence": 0.95,
+          "reason": "Line 27 `if (!token) return true;` runs before verification, so any request without `x-upload-token` passes. Someone with only the share link can skip the header and modify files, which is what the guard class doc says it prevents. Only requests carrying a bad token are rejected."
+        }
+      ],
+      "rejected": [],
+      "score": {
+        "caught": [
+          "upload-auth-bypass"
+        ],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": [
+          "hit"
+        ]
+      },
+      "tokens": {
+        "input": 6177,
+        "cacheRead": 7863,
+        "cacheWrite": 5093,
+        "output": 1186
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.037733,
+      "durationMs": 9410,
+      "filesReviewed": 1,
+      "filesSkipped": 0,
+      "notes": [],
+      "outcome": "caught"
+    },
+    {
+      "id": "07-synthetic-unlock-await",
+      "kind": "synthetic",
+      "expected": [
+        {
+          "file": "apps/api/src/drops/drops.service.ts",
+          "lineStart": 182,
+          "lineEnd": 183,
+          "id": "unlock-missing-await",
+          "severity": "blocker",
+          "description": "verifyPassword returns a Promise; without await, passwordMatches is always truthy, so any password unlocks a protected drop.",
+          "alsoAt": []
+        }
+      ],
+      "claudeCodeEstimateUsd": 0.1008546,
+      "findings": [
+        {
+          "file": "apps/api/src/drops/drops.service.ts",
+          "lineStart": 182,
+          "lineEnd": 183,
+          "severity": "blocker",
+          "category": "security",
+          "title": "Dropped `await` on verifyPassword lets any password unlock a link",
+          "explanation": "The refactor removed the `await` the original code had on `verifyPassword`. The original awaited it, so it returns a Promise. `passwordMatches` is now a Promise object, which is always truthy, so `!passwordMatches` is never true. The wrong-password branch is dead: any password, including an empty one, gets an unlock token for a protected drop. The failure counter is also never reported, because the code only reads it in that branch.",
+          "confidence": 0.88,
+          "reason": "The diff removes the `await` the original had on `verifyPassword(...)` (line 182). Awaiting it implies it is async. Without `await`, `passwordMatches` is a Promise, which is always truthy, so `!passwordMatches` at line 183 never fires. Any password then reaches the token issue at line 203. This is an auth bypass, despite the 'no behaviour change' description."
+        }
+      ],
+      "rejected": [],
+      "score": {
+        "caught": [
+          "unlock-missing-await"
+        ],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": [
+          "hit"
+        ]
+      },
+      "tokens": {
+        "input": 38225,
+        "cacheRead": 48457,
+        "cacheWrite": 19674,
+        "output": 1384
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.144321,
+      "durationMs": 13038,
+      "filesReviewed": 1,
+      "filesSkipped": 0,
+      "notes": [
+        "Also read a file outside this PR that calls code it changes: apps/api/src/drops/drops.controller.ts."
+      ],
+      "outcome": "caught"
+    },
+    {
+      "id": "08-synthetic-folder-off-by-one",
+      "kind": "synthetic",
+      "expected": [
+        {
+          "file": "apps/api/src/lib/drop-paths.ts",
+          "lineStart": 62,
+          "lineEnd": 68,
+          "id": "folders-off-by-one",
+          "severity": "major",
+          "description": "The loop stops one folder early (i < segments - 1 instead of i < segments): the deepest folder of every path is missing (\"notes/a.txt\" gives no folder), so findPathConflict no longer catches a file named like a folder (\"notes\" and \"notes/a.txt\") and such zips cannot be extracted.",
+          "alsoAt": []
+        }
+      ],
+      "claudeCodeEstimateUsd": 0.0513869,
+      "findings": [
+        {
+          "file": "apps/api/src/lib/drop-paths.ts",
+          "lineStart": 64,
+          "lineEnd": 64,
+          "severity": "major",
+          "category": "bug",
+          "title": "foldersOf loop starts at 1 and drops the last folder prefix",
+          "explanation": "The loop runs `length - 2` times, not `length - 1`. For \"photos/a.jpg\" it returns [] (it used to return [\"photos\"]). For \"photos/2024/a.jpg\" it returns [\"photos\"] and misses \"photos/2024\". `findPathConflict` therefore no longer reports a file-and-folder conflict, for example \"notes\" with \"notes/a.txt\", or \"a/b\" with \"a/b/c.txt\". Such a drop gets through and then produces a broken zip when extracted. The PR says the output is unchanged, but it is not. The loop also calls `path.split('/')` on every iteration.",
+          "confidence": 0.95,
+          "reason": "Line 64: `for (let i = 1; i < split.length - 1; ...)` runs length-2 times. \"photos/a.jpg\" gives [] (the old code gave [\"photos\"]). \"photos/2024/a.jpg\" gives [\"photos\"] and misses \"photos/2024\". findPathConflict (line 81) then misses file-and-folder conflicts, so the output is not unchanged. The replacement is not safe: it is a multi-line block that covers lines 62-67, but the range is only line 6\u2026"
+        }
+      ],
+      "rejected": [],
+      "score": {
+        "caught": [
+          "folders-off-by-one"
+        ],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": [
+          "hit"
+        ]
+      },
+      "tokens": {
+        "input": 9660,
+        "cacheRead": 7863,
+        "cacheWrite": 8574,
+        "output": 1573
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.057271,
+      "durationMs": 13488,
+      "filesReviewed": 1,
+      "filesSkipped": 0,
+      "notes": [],
+      "outcome": "caught"
+    },
+    {
+      "id": "11-clean-revert-unlock-limiter",
+      "kind": "clean",
+      "expected": [],
+      "claudeCodeEstimateUsd": 0.1029624,
+      "findings": [],
+      "rejected": [],
+      "score": {
+        "caught": [],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": []
+      },
+      "tokens": {
+        "input": 24908,
+        "cacheRead": 4038,
+        "cacheWrite": 24366,
+        "output": 279
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.113925,
+      "durationMs": 3686,
+      "filesReviewed": 2,
+      "filesSkipped": 0,
+      "notes": [
+        "Also read 2 files outside this PR that call code it changes: apps/api/src/drops/drops.controller.ts, apps/web/hooks/use-drop-uploads.ts."
+      ],
+      "outcome": "quiet"
+    },
+    {
+      "id": "12-clean-time-picker",
+      "kind": "clean",
+      "expected": [],
+      "claudeCodeEstimateUsd": 0.0661016,
+      "findings": [],
+      "rejected": [],
+      "score": {
+        "caught": [],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": []
+      },
+      "tokens": {
+        "input": 14525,
+        "cacheRead": 4038,
+        "cacheWrite": 13983,
+        "output": 849
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.072901,
+      "durationMs": 7852,
+      "filesReviewed": 2,
+      "filesSkipped": 0,
+      "notes": [],
+      "outcome": "quiet"
+    },
+    {
+      "id": "13-clean-max-size",
+      "kind": "clean",
+      "expected": [],
+      "claudeCodeEstimateUsd": 0.047301800000000005,
+      "findings": [],
+      "rejected": [],
+      "score": {
+        "caught": [],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": []
+      },
+      "tokens": {
+        "input": 2,
+        "cacheRead": 4038,
+        "cacheWrite": 11591,
+        "output": 53
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.029915,
+      "durationMs": 1993,
+      "filesReviewed": 5,
+      "filesSkipped": 0,
+      "notes": [],
+      "outcome": "quiet"
+    },
+    {
+      "id": "14-clean-drops-schema",
+      "kind": "clean",
+      "expected": [],
+      "claudeCodeEstimateUsd": 0.0322954,
+      "findings": [],
+      "rejected": [],
+      "score": {
+        "caught": [],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": []
+      },
+      "tokens": {
+        "input": 6823,
+        "cacheRead": 4038,
+        "cacheWrite": 6281,
+        "output": 630
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.036052,
+      "durationMs": 5959,
+      "filesReviewed": 4,
+      "filesSkipped": 1,
+      "notes": [],
+      "outcome": "quiet"
+    },
+    {
+      "id": "15-clean-drops-api",
+      "kind": "clean",
+      "expected": [],
+      "claudeCodeEstimateUsd": 0.25634160000000006,
+      "findings": [],
+      "rejected": [],
+      "score": {
+        "caught": [],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": []
+      },
+      "tokens": {
+        "input": 50695,
+        "cacheRead": 4038,
+        "cacheWrite": 50153,
+        "output": 5049
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.277666,
+      "durationMs": 41633,
+      "filesReviewed": 28,
+      "filesSkipped": 4,
+      "notes": [],
+      "outcome": "quiet"
+    },
+    {
+      "id": "16-clean-drops-tests",
+      "kind": "clean",
+      "expected": [],
+      "claudeCodeEstimateUsd": 0.1005925,
+      "findings": [],
+      "rejected": [],
+      "score": {
+        "caught": [],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": []
+      },
+      "tokens": {
+        "input": 22359,
+        "cacheRead": 4038,
+        "cacheWrite": 21817,
+        "output": 1089
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.110554,
+      "durationMs": 9379,
+      "filesReviewed": 9,
+      "filesSkipped": 1,
+      "notes": [],
+      "outcome": "quiet"
+    },
+    {
+      "id": "17-clean-multi-upload",
+      "kind": "clean",
+      "expected": [],
+      "claudeCodeEstimateUsd": 0.2664584,
+      "findings": [],
+      "rejected": [],
+      "score": {
+        "caught": [],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": []
+      },
+      "tokens": {
+        "input": 55158,
+        "cacheRead": 4038,
+        "cacheWrite": 54616,
+        "output": 4228
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.28954,
+      "durationMs": 34887,
+      "filesReviewed": 19,
+      "filesSkipped": 5,
+      "notes": [],
+      "outcome": "quiet"
+    },
+    {
+      "id": "18-clean-share-page",
+      "kind": "clean",
+      "expected": [],
+      "claudeCodeEstimateUsd": 0.5636272,
+      "findings": [
+        {
+          "file": "apps/web/components/share/shared-file-card.tsx",
+          "lineStart": 51,
+          "lineEnd": 65,
+          "severity": "minor",
+          "category": "bug",
+          "title": "Single file rejected by the check shows \"File is being scanned\" forever",
+          "explanation": "`ready` is `file.status === \"UPLOADED\"`, and every other status takes the \"File is being scanned\" branch. `SharedDrop` routes any drop with one file to this card. `DropFile.status` can be `REMOVED`, which is a file the check rejected. The README says the share page lists such files as removed. So a one-file link whose file is rejected, such as an executable, shows a scanning badge and a disabled Download button indefinitely. The link is never marked as failed, and the page keeps polling every minute.",
+          "confidence": 0.6,
+          "reason": "shared-file-card.tsx line 51 only checks `ready`, so a REMOVED status falls into the \"File is being scanned\" badge at lines 58-65. SharedDrop routes every drop with one file here, and DropFile.status explicitly includes REMOVED. The bundle card handles REMOVED, so a one-file rejected upload is the unhandled case. The Download button is disabled, so the outcome is right but the message is wrong."
+        }
+      ],
+      "rejected": [],
+      "score": {
+        "caught": [],
+        "missed": [],
+        "droppedInPass2": [],
+        "labels": [
+          "nit"
+        ]
+      },
+      "tokens": {
+        "input": 131088,
+        "cacheRead": 7863,
+        "cacheWrite": 130004,
+        "output": 3006
+      },
+      "billedUsd": 0,
+      "apiEquivalentUsd": 0.618033,
+      "durationMs": 26365,
+      "filesReviewed": 10,
+      "filesSkipped": 1,
+      "notes": [
+        "Also read 2 files outside this PR that still use a name the change removes or renames: apps/web/components/upload/drop-row.tsx, apps/web/components/upload/uploader.tsx."
+      ],
+      "outcome": "nits only"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "17-clean-multi-upload",
+  "kind": "clean",
+  "title": "feat(web): upload several files or a folder with password and burn options",
+  "body": "",
+  "base": {
+    "sha": "5a622255f32346cf044b3d73d7eb0d759e331cb6"
+  },
+  "source": {
+    "commit": "788f9500a8e21506763aef79676f4976f01f6f56",
+    "parent": "5a622255f32346cf044b3d73d7eb0d759e331cb6",
+    "message": "feat(web): upload several files or a folder with password and burn options"
+  },
+  "note": "Web upload of several files or a folder, with password and burn options.",
+  "expected": []
+}

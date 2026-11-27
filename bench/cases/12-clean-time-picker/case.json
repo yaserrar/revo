@@ -1,0 +1,16 @@
+{
+  "id": "12-clean-time-picker",
+  "kind": "clean",
+  "title": "feat(XLWONvtz): Replace native time picker with custom component that matches the style",
+  "body": "I replaced the native time input in the upload expiry picker with a custom time picker that matches the app's style. I couldn't run any checks: lint crashed before checking any code, the type check was blocked here, and I haven't tried it in a browser.\n\n**What changed**\n- **New `components/ui/time-picker.tsx`:** a `TimePicker` that takes and returns time as `\"HH:mm\"` (24-hour), the same format the native input used. It shows the time on a small outline button. Clicking it opens a popover with two scrollable columns: hours (00–23) and minutes (00–59). The selected values are highlighted in the brand color and scrolled to the middle when it opens. It's built from the existing `Button` and `Popover` components.\n- **`components/upload/expiry-picker.tsx`:** swapped `<Input type=\"time\">` for `<TimePicker>` and removed the `Input` import, which was no longer used. The rest of the expiry logic is unchanged.\n\n**Checks**\n- `npm run lint` crashed because it can't find `@repo/eslint-config`. The workspace packages likely aren't installed or linked here, so it never got to the code. This wasn't caused by my change.\n- `npm run check-types` was blocked by the sandbox, so types are unchecked.\n\n**What the reviewer should check**\n- Run `npm run lint` and `npm run check-types` in `apps/web` after installing dependencies.\n- **Popover inside a popover:** the time picker opens inside the expiry popover. Picking a time should close only the time popover and keep the expiry popover open. Clicking outside both should close both.\n- **Look and scrolling:** check the hover and focus styles and the selected highlight in light and dark mode. Make sure the selected hour and minute are scrolled into view when it opens. The scrollbar is hidden, so you scroll with the wheel or touch.\n- **Keyboard:** you can Tab through the options and press Enter to pick one, but arrow keys don't move between them the way a full listbox would. Decide whether that's enough.\n\nTrello: https://trello.com/c/XLWONvtz/2-replace-native-time-picker-with-custom-component-that-matches-the-style",
+  "base": {
+    "sha": "0b23f62d88679905b8b5e72ab2747115e40754a7"
+  },
+  "source": {
+    "commit": "0b6200d27dcad068fe2c9017732f34b1c873c738",
+    "parent": "0b23f62d88679905b8b5e72ab2747115e40754a7",
+    "message": "feat(XLWONvtz): Replace native time picker with custom component that matches the style"
+  },
+  "note": "Custom time picker replacing the native input; real feature work.",
+  "expected": []
+}

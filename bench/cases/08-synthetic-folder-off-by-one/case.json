@@ -1,0 +1,23 @@
+{
+  "id": "08-synthetic-folder-off-by-one",
+  "kind": "synthetic",
+  "title": "Build folder prefixes without slicing every segment",
+  "body": "Small refactor of foldersOf in drop-paths; same output.",
+  "base": {
+    "sha": "892ddf8f6eb131ef8896c8ceb2167872d6fbceb5"
+  },
+  "source": {
+    "note": "Synthetic: written for this benchmark against 892ddf8."
+  },
+  "note": "The loop bound is one short.",
+  "expected": [
+    {
+      "id": "folders-off-by-one",
+      "file": "apps/api/src/lib/drop-paths.ts",
+      "lineStart": 62,
+      "lineEnd": 68,
+      "severity": "major",
+      "description": "The loop stops one folder early (i < segments - 1 instead of i < segments): the deepest folder of every path is missing (\"notes/a.txt\" gives no folder), so findPathConflict no longer catches a file named like a folder (\"notes\" and \"notes/a.txt\") and such zips cannot be extracted."
+    }
+  ]
+}
