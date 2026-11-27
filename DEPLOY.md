@@ -110,16 +110,17 @@ cp .env.example .env && chmod 600 .env
 
 Fill in `.env`:
 
-| Variable                                                                                                                          | Value                                                                          |
-| --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `DOMAIN`                                                                                                                          | `revo.example.com`                                                             |
-| `ACME_EMAIL`                                                                                                                      | your email (certificate notices)                                               |
-| `POSTGRES_PASSWORD`                                                                                                               | `openssl rand -hex 24`                                                         |
-| `AUTH_SECRET`, `TOKEN_ENCRYPTION_KEY`                                                                                             | `openssl rand -base64 32` each                                                 |
-| `ANTHROPIC_API_KEY`                                                                                                               | your Claude API key                                                            |
-| `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_PRIVATE_KEY` | from step 3                                                                    |
-| `REVO_ENGINE`                                                                                                                     | set to `claude` by docker-compose.yml; the worker refuses `fake` in production |
-| `REVIEW_DEBOUNCE_SECONDS`, `WORKER_CONCURRENCY`, `LOG_LEVEL`                                                                      | `90`, `2`, `info`                                                              |
+| Variable                                                                                                                          | Value                                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DOMAIN`                                                                                                                          | `revo.example.com`                                                                                                                                                                                                            |
+| `ACME_EMAIL`                                                                                                                      | your email (certificate notices)                                                                                                                                                                                              |
+| `POSTGRES_PASSWORD`                                                                                                               | `openssl rand -hex 24`                                                                                                                                                                                                        |
+| `AUTH_SECRET`, `TOKEN_ENCRYPTION_KEY`                                                                                             | `openssl rand -base64 32` each                                                                                                                                                                                                |
+| `ANTHROPIC_API_KEY`                                                                                                               | your Claude API key                                                                                                                                                                                                           |
+| `REVO_OWNER_ACCOUNTS`                                                                                                             | your GitHub login and orgs, comma-separated: their repos review with no monthly limit and may use every model. Every other account gets the free tier (`FREE_REVIEWS_PER_MONTH`, 20; `FREE_MONTHLY_CAP_USD`, $50) on your key |
+| `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_PRIVATE_KEY` | from step 3                                                                                                                                                                                                                   |
+| `REVO_ENGINE`                                                                                                                     | set to `claude` by docker-compose.yml; the worker refuses `fake` in production                                                                                                                                                |
+| `REVIEW_DEBOUNCE_SECONDS`, `WORKER_CONCURRENCY`, `LOG_LEVEL`                                                                      | `90`, `2`, `info`                                                                                                                                                                                                             |
 
 Leave the "local tests only" block empty (`GITHUB_OAUTH_BASE_URL`, `GITHUB_API_URL`,
 `REVO_TEST_MODE`, `MOCK_WEBHOOK_URL`, `REVO_ENABLE_DEV_KIT`). Compose sets `DATABASE_URL`,
@@ -202,14 +203,15 @@ queued during the downtime are kept by Redis (AOF) and run when the worker is ba
 
 ## 10. Troubleshooting
 
-| Symptom                                      | Look at                                                                                                                                       |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| No certificate                               | Port 80 open to the internet? `dig` returns the Elastic IP? `docker compose logs traefik`.                                                    |
-| Webhook deliveries answer 401                | `GITHUB_WEBHOOK_SECRET` differs from the app's webhook secret.                                                                                |
-| Sign-in fails                                | The app's Callback URL must be exactly `https://<DOMAIN>/api/auth/callback/github`; `GITHUB_CLIENT_ID`/`SECRET` from the same app.            |
-| Check stays on "Revo: reviewing…"            | `docker compose logs worker`; is the worker healthy?                                                                                          |
-| Neutral check "Revo couldn't review this PR" | The review failed after its retries (Claude unavailable, key rejected…). The reason is on the PR page in the dashboard; use **Review again**. |
-| Neutral check "Monthly budget reached"       | The repo spent its monthly budget. Raise it in the repo settings.                                                                             |
+| Symptom                                         | Look at                                                                                                                                                                                      |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No certificate                                  | Port 80 open to the internet? `dig` returns the Elastic IP? `docker compose logs traefik`.                                                                                                   |
+| Webhook deliveries answer 401                   | `GITHUB_WEBHOOK_SECRET` differs from the app's webhook secret.                                                                                                                               |
+| Sign-in fails                                   | The app's Callback URL must be exactly `https://<DOMAIN>/api/auth/callback/github`; `GITHUB_CLIENT_ID`/`SECRET` from the same app.                                                           |
+| Check stays on "Revo: reviewing…"               | `docker compose logs worker`; is the worker healthy?                                                                                                                                         |
+| Neutral check "Revo couldn't review this PR"    | The review failed after its retries (Claude unavailable, key rejected…). The reason is on the PR page in the dashboard; use **Review again**.                                                |
+| Neutral check "Monthly budget reached"          | The repo spent its monthly budget. Raise it in the repo settings.                                                                                                                            |
+| Neutral check "Free reviews used up this month" | The account is on the free tier and used `FREE_REVIEWS_PER_MONTH`. Add it to `REVO_OWNER_ACCOUNTS` (then `docker compose up -d`), or save its own Anthropic key under **Repos → AI access**. |
 
 ## 11. Data and security
 
